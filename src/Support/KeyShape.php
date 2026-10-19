@@ -21,10 +21,23 @@ final class KeyShape
     public static function fits(mixed $key, KeyType $type): bool
     {
         return match ($type) {
-            KeyType::BigInt => is_int($key) || (is_string($key) && preg_match('/^[0-9]{1,19}$/D', $key) === 1),
+            KeyType::BigInt => is_int($key) || (is_string($key) && self::isBigInt($key)),
             KeyType::Uuid => is_string($key) && Str::isUuid($key),
             KeyType::Ulid => is_string($key) && Str::isUlid($key),
         };
+    }
+
+    /**
+     * Digits within the signed 64-bit range: 19 digits pass the pattern up to
+     * 9999999999999999999, past what PHP and a bigint column hold.
+     */
+    private static function isBigInt(string $key): bool
+    {
+        if (preg_match('/^[0-9]{1,19}$/D', $key) !== 1) {
+            return false;
+        }
+
+        return strlen($key) < 19 || strcmp($key, (string) PHP_INT_MAX) <= 0;
     }
 
     /**

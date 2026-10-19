@@ -40,7 +40,28 @@ test('malformed_keys_never_500', function (string $reference): void {
     apiUser();
 
     $this->getJson('/api/tags/label?scope='.urlencode($reference))->assertUnprocessable()->assertJson(['code' => 'unknown_alias']);
-})->with(['team:abc', 'team:', 'team:1.5', 'team:999999', "team:1' or 1=1", 'team:'.str_repeat('9', 40)]);
+})->with(['team:abc', 'team:', 'team:1.5', 'team:999999', "team:1' or 1=1", 'team:'.str_repeat('9', 40), 'team:9223372036854775808', 'team:9999999999999999999']);
+
+// 19 digits above the bigint range fit the digit pattern but no bigint column: PostgreSQL
+// answers them with an error, not an empty result.
+test('oversized_tag_keys_never_500', function (): void {
+    defineTagGates();
+    apiUser(admin: true);
+    Tags::define('genre')->hierarchical();
+    $root = Tags::type('genre')->make('Root')->create();
+    $huge = '9999999999999999999';
+
+    $this->getJson("/api/tags/label/{$huge}")->assertNotFound()->assertJson(['code' => 'tag_not_found']);
+    $this->getJson("/api/tags/label?filter[parent]={$huge}")->assertOk()->assertJsonCount(0, 'data');
+    $this->getJson("/api/tags/label?filter[ids]={$huge}")->assertOk()->assertJsonCount(0, 'data');
+    $this->postJson('/api/tags/genre', ['name' => ['en' => 'Child'], 'parent' => $huge])->assertUnprocessable()->assertJson(['code' => 'tag_not_found']);
+    $this->postJson("/api/tags/genre/{$root->getKey()}/move", ['parent' => $huge])->assertUnprocessable()->assertJson(['code' => 'tag_not_found']);
+    $this->postJson('/api/tags/genre/reorder', ['parent' => $huge, 'order' => []])->assertUnprocessable()->assertJson(['code' => 'tag_not_found']);
+
+    expect(Tags::find($huge))->toBeNull()
+        ->and(Tags::find('9223372036854775807'))->toBeNull()
+        ->and(Tags::type('label')->findMany([$huge])->count())->toBe(0);
+})->skip(fn (): bool => config('tags.primary_key_type') !== 'bigint', 'int keys');
 
 test('scope_param_requires_the_scope_ability', function (): void {
     Gate::define('tags.scope', static fn (User $user, Model $scope): bool => $scope->getKey() === test()->acme->getKey());
