@@ -67,8 +67,14 @@ final readonly class SyncTagsAction
             $created = [];
             $drafts = array_map(static fn (array $map): TagDraft => new TagDraft($type, $scope, ScopeKey::for($scope), $map, orphanAsRoot: true), array_values($missing));
 
-            // Every name's rows in one ascending sweep, before any is stored.
-            TagStore::lockAll($drafts);
+            // One sweep: the tags the model carries, the named ones and every row the new names may
+            // lock or change.
+            $current = Taggings::currentForWrite(
+                $taggable,
+                $type->name,
+                [...array_map(static fn (Tag $tag): int|string => $tag->getKey(), $tags), ...TagStore::rowsFor($drafts)],
+                lockCurrent: true,
+            );
 
             foreach ($drafts as $draft) {
                 $stored = TagStore::store($draft, TagName::lookup($draft->name), locked: true);
@@ -82,8 +88,6 @@ final readonly class SyncTagsAction
                 $tags[] = $stored->tag;
                 $created[] = $stored;
             }
-
-            $current = Taggings::currentForWrite($taggable, $type->name, array_map(static fn (Tag $tag): int|string => $tag->getKey(), $tags));
 
             // Never more than the max checked above: the stored names only ever collapse onto
             // tags already counted.

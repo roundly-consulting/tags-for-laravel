@@ -59,11 +59,14 @@ final readonly class AttachTagsAction
             Taggings::lock($taggable);
 
             $resolved = $resolve->execute($taggable, $selection, strict: true);
-            $current = Taggings::currentForWrite($taggable, alsoLock: self::keysOf($resolved));
+            $drafts = self::drafts($taggable, $resolved);
+
+            // One sweep: the named tags and every row the new names may lock or change.
+            $current = Taggings::currentForWrite($taggable, alsoLock: [...self::keysOf($resolved), ...TagStore::rowsFor($drafts)]);
 
             self::ensureWithinMax($resolved->types, $current, self::adding($resolved));
 
-            $stored = self::createMissing($taggable, $resolved);
+            $stored = self::createMissing($drafts);
             $tags = [];
 
             foreach ($resolved->tags as $byType) {
@@ -156,11 +159,11 @@ final readonly class AttachTagsAction
     }
 
     /**
-     * The free-form names created (or restored, or found after a race) in the model's scope.
+     * The free-form names to create (or restore) in the model's scope.
      *
-     * @return list<StoredTag>
+     * @return list<TagDraft>
      */
-    private static function createMissing(Model&Taggable $taggable, ResolvedSelection $resolved): array
+    private static function drafts(Model&Taggable $taggable, ResolvedSelection $resolved): array
     {
         $drafts = [];
 
@@ -173,8 +176,18 @@ final readonly class AttachTagsAction
             }
         }
 
-        // Every name's rows in one ascending sweep, before any is stored.
-        TagStore::lockAll($drafts);
+        return $drafts;
+    }
+
+    /**
+     * The free-form names created (or restored, or found after a race), their rows already locked
+     * by the write's sweep.
+     *
+     * @param  list<TagDraft>  $drafts
+     * @return list<StoredTag>
+     */
+    private static function createMissing(array $drafts): array
+    {
         $tags = [];
 
         foreach ($drafts as $draft) {

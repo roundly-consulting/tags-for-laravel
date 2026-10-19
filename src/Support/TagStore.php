@@ -132,8 +132,6 @@ final class TagStore
      */
     public static function lockAll(array $drafts): void
     {
-        $keys = [];
-        $sets = [];
         $trees = [];
 
         foreach ($drafts as $draft) {
@@ -147,6 +145,21 @@ final class TagStore
         foreach ($trees as $draft) {
             TreeLock::lock($draft->type->name, $draft->scopeKey);
         }
+
+        Taggings::lockTags(self::rowsFor($drafts));
+    }
+
+    /**
+     * The keys of every row storing these drafts may lock or change, read without a lock — for a
+     * tagging write that folds them into its one sweep (the caller took the tree locks).
+     *
+     * @param  list<TagDraft>  $drafts
+     * @return list<int|string>
+     */
+    public static function rowsFor(array $drafts): array
+    {
+        $keys = [];
+        $sets = [];
 
         foreach ($drafts as $draft) {
             $holders = TagLookup::holders($draft->type, $draft->scopeKey, self::slugs($draft));
@@ -165,7 +178,7 @@ final class TagStore
             }
         }
 
-        TreeLock::rows($keys, ...$sets);
+        return TreeLock::keys($keys, ...$sets);
     }
 
     /**

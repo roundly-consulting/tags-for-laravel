@@ -338,3 +338,35 @@ test('a_multi_name_re_create_and_a_key_ordered_writer_never_deadlock', function 
         ->and($racer->outcome())->toBe('attached')
         ->and(Tagging::query()->where('taggable_id', $article->getKey())->count())->toBe(2);
 })->skip(fn (): bool => ! Racer::available(), 'needs a real engine and pcntl')->group('real-engine');
+
+// FR-3: one call naming an existing tag and a deleted name takes both rows in one ascending sweep.
+// Staged: a key-order locker holds the lower key (the deleted name's) and then asks for the higher
+// one, while a host-transaction attach of [higher, the name] runs in between.
+test('an_attach_of_an_existing_tag_and_a_re_created_name_never_deadlocks', function (): void {
+    $holder = Tags::type('tag')->make('Holder')->create();     // the lower key
+    $existing = Tags::type('tag')->make('Existing')->create();
+    Tags::type('tag')->delete($holder);
+    $article = Article::query()->create();
+    $racer = new Racer;
+    $parent = 'done';
+
+    try {
+        DB::transaction(function () use ($holder, $existing, $article, $racer): void {
+            Tag::query()->withTrashed()->whereKey($holder->getKey())->lockForUpdate()->first();
+
+            $racer->run(static fn (): string => DB::connection('racer')->transaction(static function () use ($article, $existing): string {
+                Article::on('racer')->findOrFail($article->getKey())->attachTags([Tag::on('racer')->findOrFail($existing->getKey()), 'Holder']);
+
+                return 'attached';
+            }))->waitUntilBlockedOrDone();
+
+            Tag::query()->whereKey($existing->getKey())->lockForUpdate()->first();
+        });
+    } catch (QueryException $exception) {
+        $parent = 'error: '.$exception->getMessage();
+    }
+
+    expect($parent)->toBe('done')
+        ->and($racer->outcome())->toBe('attached')
+        ->and(Tagging::query()->where('taggable_id', $article->getKey())->count())->toBe(2);
+})->skip(fn (): bool => ! Racer::available(), 'needs a real engine and pcntl')->group('real-engine');

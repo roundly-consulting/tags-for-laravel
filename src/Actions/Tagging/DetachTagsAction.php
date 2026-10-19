@@ -39,7 +39,16 @@ final readonly class DetachTagsAction
             Taggings::lock($taggable);
 
             $resolved = $resolve->execute($taggable, $selection, strict: false);
-            $current = Taggings::currentForWrite($taggable);
+            $named = [];
+
+            foreach ($resolved->tags as $tags) {
+                foreach ($tags as $tag) {
+                    $named[] = $tag->getKey();
+                }
+            }
+
+            // One sweep: the named tags (and, in a host transaction, the tags the model carries).
+            $current = Taggings::currentForWrite($taggable, alsoLock: $named);
             $detach = [];
 
             foreach ($resolved->tags as $tags) {

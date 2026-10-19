@@ -14,6 +14,7 @@ use RoundlyConsulting\Tags\Exceptions\TagNotFoundException;
 use RoundlyConsulting\Tags\Models\Tag;
 use RoundlyConsulting\Tags\Support\NotGiven;
 use RoundlyConsulting\Tags\Support\TagAttributes;
+use RoundlyConsulting\Tags\Support\Taggings;
 use RoundlyConsulting\Tags\Support\TagLookup;
 use RoundlyConsulting\Tags\Support\TagModel;
 use RoundlyConsulting\Tags\Support\TagName;
@@ -49,6 +50,10 @@ final readonly class UpdateTagAction
         }
 
         return TagTransaction::run(static function () use ($tag, $type, $data, $name, $description, $cleared, $slug, $color, $icon): Tag {
+            // One sweep: the tag and every holder of a slug this change may take, read first
+            // without a lock, so the holders probe below finds them held.
+            Taggings::lockTags([$tag->getKey(), ...TagLookup::holders($type, $tag->scope_key, self::candidateSlugs($name, $slug), except: $tag)->modelKeys()]);
+
             $fresh = TagModel::query()->whereKey($tag->getKey())->lockForUpdate()->first()
                 ?? throw TagNotFoundException::trashed();
 
@@ -137,5 +142,23 @@ final readonly class UpdateTagAction
 
             return $fresh;
         });
+    }
+
+    /**
+     * Every slug the change could give the tag: each new name's, per locale, and each manual one.
+     *
+     * @param  array<string, string>|null  $name
+     * @param  array<string, string>|null  $slug
+     * @return array<string, string>
+     */
+    private static function candidateSlugs(?array $name, ?array $slug): array
+    {
+        $slugs = [];
+
+        foreach ($name ?? [] as $locale => $value) {
+            $slugs[$locale] = TagSlugs::slugify($value, $locale);
+        }
+
+        return [...$slugs, ...($slug ?? [])];
     }
 }

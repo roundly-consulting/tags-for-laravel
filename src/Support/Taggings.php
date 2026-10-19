@@ -143,23 +143,30 @@ final class Taggings
     }
 
     /**
-     * The model's current taggings for a write, after its row lock. In a transaction of its own,
-     * a plain read. In a host transaction, a locking read of its pivot rows — taken after the tag
-     * rows they point at (and `$alsoLock`, the tags the write will attach) are locked in key
-     * order, the order a tag delete or restore takes (tag rows, then pivot rows), so the two never
-     * wait on each other in a cycle. A tag the snapshot missed (attached after the host's snapshot
-     * was taken) is locked last.
+     * The model's current taggings for a write, after its row lock — and the write's one sweep of
+     * tag-row locks: `$alsoLock` (every row the write will attach, store or detach) and, when
+     * `$lockCurrent` or inside a host transaction, the tag rows the model carries, all in one
+     * ascending sweep of their keys, so nothing is locked after a higher key it holds. In a
+     * transaction of its own the taggings are a plain read. In a host transaction the pivot rows
+     * are then read with a locking read — after the tag rows they point at, the order a tag delete
+     * or restore takes (tag rows, then pivot rows), so the two never wait on each other in a
+     * cycle. A tag the snapshot missed (attached after the host's snapshot was taken) is locked
+     * last.
      *
      * @param  list<int|string>  $alsoLock
      * @return array<string, string> tag key => type
      */
-    public static function currentForWrite(Model $taggable, ?string $type = null, array $alsoLock = []): array
+    public static function currentForWrite(Model $taggable, ?string $type = null, array $alsoLock = [], bool $lockCurrent = false): array
     {
+        $snapshot = self::current($taggable, $type);
+
         if (! self::nested()) {
-            return self::current($taggable, $type);
+            self::lockTags([...($lockCurrent ? array_keys($snapshot) : []), ...$alsoLock]);
+
+            return $snapshot;
         }
 
-        $locked = self::lockTags([...array_keys(self::current($taggable, $type)), ...$alsoLock]);
+        $locked = self::lockTags([...array_keys($snapshot), ...$alsoLock]);
         $current = self::current($taggable, $type, locked: true);
         self::lockTags(array_values(array_diff(array_map(strval(...), array_keys($current)), $locked)));
 

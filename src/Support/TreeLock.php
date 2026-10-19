@@ -42,6 +42,19 @@ final class TreeLock
      */
     public static function rows(array $keys, Builder ...$sets): void
     {
+        Taggings::lockTags(self::keys($keys, ...$sets));
+    }
+
+    /**
+     * `$keys` and the keys of the rows `$sets` name, read without a lock: what {@see self::rows()}
+     * sweeps, for a caller that folds them into a sweep of its own.
+     *
+     * @param  list<int|string|null>  $keys
+     * @param  Builder<Tag>  ...$sets
+     * @return list<int|string>
+     */
+    public static function keys(array $keys, Builder ...$sets): array
+    {
         $all = array_values(array_filter($keys, static fn (int|string|null $key): bool => $key !== null));
 
         foreach ($sets as $set) {
@@ -52,7 +65,7 @@ final class TreeLock
             }
         }
 
-        Taggings::lockTags($all);
+        return $all;
     }
 
     /**

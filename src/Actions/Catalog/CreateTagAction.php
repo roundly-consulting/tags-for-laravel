@@ -33,7 +33,7 @@ final readonly class CreateTagAction
         $draft = TagDrafts::fromData($this->registry->resolve($type), $data, $scope, replaces: true);
 
         return TagTransaction::run(static function () use ($draft): Tag {
-            $stored = TagStore::store(TagDrafts::underLock($draft));
+            $stored = TagStore::store(TagDrafts::underLock($draft), locked: true);
 
             event($stored->restored ? new TagRestored($stored->tag) : new TagCreated($stored->tag));
 

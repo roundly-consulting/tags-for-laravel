@@ -83,13 +83,14 @@ final class TagDrafts
     }
 
     /**
-     * Take the tree lock a child (or a tag at an explicit position) is created under, and re-read
-     * its parent under that lock: the parent may have moved or gone meanwhile. Inside the caller's
-     * transaction; a draft with neither returns as it is.
+     * Take the locks a draft is stored under — for a tag of a tree (or at an explicit position)
+     * the tree lock and the one sweep of the rows the store may change — and re-read its parent
+     * under them: the parent may have moved or gone meanwhile. Inside the caller's transaction; a
+     * flat draft without a position returns as it is (its store locks only the slug holders).
      */
     public static function underLock(TagDraft $draft): TagDraft
     {
-        if ($draft->parent === null && $draft->position === null) {
+        if (! $draft->type->hierarchical && $draft->position === null) {
             return $draft;
         }
 

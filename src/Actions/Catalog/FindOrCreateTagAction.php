@@ -65,7 +65,7 @@ final readonly class FindOrCreateTagAction
                 return $found;
             }
 
-            $stored = TagStore::store($draft, $lookup);
+            $stored = TagStore::store($draft, $lookup, locked: true);
 
             if ($stored->created) {
                 event(new TagCreated($stored->tag));

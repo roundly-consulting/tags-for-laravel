@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use RoundlyConsulting\Tags\Enums\TagChildren;
 use RoundlyConsulting\Tags\Facades\Tags;
+use RoundlyConsulting\Tags\Models\Tag;
 use RoundlyConsulting\Tags\Tests\Fixtures\Models\Article;
 use RoundlyConsulting\Tags\Tests\Support\RecordsLocks;
 use RoundlyConsulting\Testing\Fixtures\LockRecorder;
@@ -63,11 +64,13 @@ test('tag_rows_are_locked_before_pivot_writes', function (): void {
     $this->article->syncTags(['b', 'a', 'c']);
 
     expect(RecordsLocks::writes())->toBe([
-        // The model first, then b and c are new: probe their slugs (locking) and insert them.
+        // The model first, then the write's one sweep of tag rows (the carried and named ones).
         'lock:articles',
+        'lock:tags',
+        // b and c are new: probe their slugs (locking) and insert them.
         'lock:tags', 'insert:tags',
         'lock:tags', 'insert:tags',
-        // Then the tag rows in key order, then the pivot and the counts.
+        // Then the tag rows in key order (all held), then the pivot and the counts.
         'lock:tags',
         'insert:taggables',
         'update:tags',
@@ -205,3 +208,88 @@ test('a_multi_name_re_create_locks_its_rows_in_one_key_ordered_sweep', function 
         ->and($first->fresh()?->trashed())->toBeFalse()
         ->and($second->fresh()?->trashed())->toBeFalse();
 })->with(['tag', 'topic'])->skip(fn (): bool => ! RecordsLocks::available() || config('tags.primary_key_type') !== 'bigint', 'lock recording is a sqlite grammar');
+
+/**
+ * The tag-row lock statements recorded since RecordsLocks::start(): each with the keys an
+ * inlined `id in (…)` names (none for a lock by slug or by a bound key).
+ *
+ * @return list<array{sql: string, keys: list<int>}>
+ */
+function tagRowLocks(): array
+{
+    $locks = [];
+
+    foreach (array_column(LockRecorder::recorded(), 'sql') as $sql) {
+        if (! str_contains($sql, 'from "tags"')) {
+            continue;
+        }
+
+        preg_match('/"tags"\."id" in \(([0-9, ]+)\)/', $sql, $matches);
+        $locks[] = ['sql' => $sql, 'keys' => isset($matches[1]) ? array_map(intval(...), explode(', ', $matches[1])) : []];
+    }
+
+    return $locks;
+}
+
+// FR-3: a write takes its tag-row locks in ONE ascending sweep: the first tag-row lock names every
+// row a later one locks, so nothing is locked after a higher key it already holds.
+test('every_write_takes_its_tag_row_locks_in_one_sweep', function (Closure $write, bool $nested): void {
+    $holder = Tags::type('tag')->make('Holder')->create();     // the lowest key
+    $carried = Tags::type('tag')->make('Carried')->create();
+    $existing = Tags::type('tag')->make('Existing')->create();
+    $this->article->attachTags([$carried]);
+    Tags::type('tag')->delete($holder);
+    RecordsLocks::start();
+
+    $nested ? DB::transaction(fn () => $write($this->article, $existing, $carried)) : $write($this->article, $existing, $carried);
+
+    $locks = tagRowLocks();
+    $sweep = $locks[0]['keys'] ?? [];
+    $sorted = $sweep;
+    sort($sorted);
+
+    expect($locks[0]['sql'] ?? '')->toContain('"tags"."id" in (')
+        ->and($sweep)->toBe($sorted);
+
+    foreach (array_slice($locks, 1) as $later) {
+        expect(array_diff($later['keys'], $sweep))->toBe([]);
+    }
+})->with([
+    'attach an existing tag and a re-created name' => [fn ($article, $existing) => $article->attachTags([$existing, 'Holder'])],
+    'sync to an existing tag and a re-created name' => [fn ($article, $existing) => $article->syncTags([$existing, 'Holder'])],
+    'detach' => [fn ($article, $existing, $carried) => $article->detachTags([$carried])],
+    'clear' => [fn ($article) => $article->clearTags()],
+    'rename onto a free name' => [fn ($article, $existing) => Tags::type('tag')->rename($existing, 'Renamed')],
+])->with(['own transaction' => false, 'host transaction' => true])
+    ->skip(fn (): bool => ! RecordsLocks::available() || config('tags.primary_key_type') !== 'bigint', 'lock recording is a sqlite grammar');
+
+test('every_tree_write_takes_its_tag_row_locks_in_one_sweep', function (Closure $write, bool $nested): void {
+    $music = Tags::type('genre')->make('Music')->create();
+    $jazz = Tags::type('genre')->make('Jazz')->under($music)->create();
+    $rock = Tags::type('genre')->make('Rock')->create();
+    Tags::type('genre')->make('Bebop')->under($jazz)->create();
+    $gone = Tags::type('genre')->make('Gone')->under($rock)->create();
+    Tags::type('genre')->delete($gone);
+    RecordsLocks::start();
+
+    $nested ? DB::transaction(static fn () => $write($music, $jazz, $rock)) : $write($music, $jazz, $rock);
+
+    $locks = tagRowLocks();
+    $sweep = $locks[0]['keys'] ?? [];
+
+    expect($locks[0]['sql'] ?? '')->toContain('"tags"."id" in (');
+
+    foreach (array_slice($locks, 1) as $later) {
+        expect(array_diff($later['keys'], $sweep))->toBe([]);
+    }
+})->with([
+    'move' => [fn ($music, $jazz, $rock) => Tags::type('genre')->move($jazz, $rock, 0)],
+    'delete a subtree' => [fn ($music, $jazz) => Tags::type('genre')->delete($jazz, TagChildren::Delete)],
+    'reparent' => [fn ($music, $jazz) => Tags::type('genre')->delete($jazz, TagChildren::Reparent)],
+    'restore' => [fn () => Tags::type('genre')->restore(Tag::query()->withTrashed()->where('slug->en', 'gone')->firstOrFail())],
+    'reorder' => [fn ($music, $jazz, $rock) => Tags::type('genre')->reorder(null, [$rock, $music])],
+    'create under a parent at a position' => [fn ($music) => Tags::type('genre')->make('Cool')->under($music)->position(0)->create()],
+    're-create a deleted name' => [fn ($music) => Tags::type('genre')->make('Gone')->under($music)->create()],
+    'find-or-create a deleted name' => [fn () => Tags::type('genre')->findOrCreate('Gone')],
+])->with(['own transaction' => false, 'host transaction' => true])
+    ->skip(fn (): bool => ! RecordsLocks::available() || config('tags.primary_key_type') !== 'bigint', 'lock recording is a sqlite grammar');
