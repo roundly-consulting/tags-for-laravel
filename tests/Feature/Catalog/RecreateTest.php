@@ -153,3 +153,16 @@ test('a_re_create_respects_the_depth_cap', function (): void {
     expect(fn () => $cats->findOrCreate('B'))->toThrow(InvalidTagHierarchyException::class, 'levels deep')
         ->and(Tag::query()->withTrashed()->findOrFail($b->getKey())->trashed())->toBeTrue();
 });
+
+// A plain `$tag->delete()` leaves live children: a create may not bring the tag back under one of
+// them.
+test('a_re_create_under_its_own_child_is_a_cycle', function (): void {
+    Tags::define('deep')->hierarchical();
+    $deep = Tags::type('deep');
+    $a = $deep->make('A')->create();
+    $b = $deep->make('B')->under($a)->create();
+    $a->delete();
+
+    expect(fn () => $deep->make('A')->under($b)->create())->toThrow(InvalidTagHierarchyException::class, 'below itself')
+        ->and(stored($a))->toMatchArray(['trashed' => true, 'parent' => null]);
+});

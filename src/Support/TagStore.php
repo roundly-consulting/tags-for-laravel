@@ -131,6 +131,9 @@ final class TagStore
             if ($oldParent !== null && ($parent === null || $parent->trashed())) {
                 $parent = $orphanAsRoot ? null : throw InvalidTagHierarchyException::parentTrashed();
             }
+        } elseif ($parent !== null && TagPath::isWithin($parent, $tag)) {
+            // A plain `$tag->delete()` leaves live children: never under one of them.
+            throw InvalidTagHierarchyException::cycle();
         }
 
         if ($type->maxDepth !== null) {
