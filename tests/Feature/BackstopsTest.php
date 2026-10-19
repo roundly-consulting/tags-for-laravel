@@ -91,8 +91,8 @@ test('store_returns_a_tag_created_after_resolution', function (): void {
 });
 
 test('store_recovers_from_a_unique_violation', function (): void {
-    // After the holders probe: the next query (the last sibling position) is where a racer commits.
-    insertRawTagAfter('desc limit 1', 'label', 'Rock', 'rock');
+    // After the holders probe: the next query (the sibling position) is where a racer commits.
+    insertRawTagAfter('max(', 'label', 'Rock', 'rock');
 
     $found = Tags::type('label')->findOrCreate('Rock');
 
@@ -100,7 +100,7 @@ test('store_recovers_from_a_unique_violation', function (): void {
         ->and($found->position)->toBe(9)
         ->and(Tag::query()->where('type', 'label')->count())->toBe(1);
 
-    insertRawTagAfter('desc limit 1', 'label', 'Jazz', 'jazz');
+    insertRawTagAfter('max(', 'label', 'Jazz', 'jazz');
 
     expect(fn () => Tags::type('label')->make('Jazz')->create())
         ->toThrow(DuplicateTagException::class, 'A tag with the slug [jazz] in [en] already exists.');

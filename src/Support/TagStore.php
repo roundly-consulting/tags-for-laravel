@@ -185,10 +185,13 @@ final class TagStore
     {
         $siblings = self::siblings($type, $scopeKey, $parent, $except);
 
+        // A plain read, even in a host transaction: a stale last position only ties two siblings
+        // (they order by position, then key), and locking the siblings — of a flat type, every tag
+        // of its scope — would wait on any tag a concurrent delete holds.
         if ($position === null) {
-            $max = TreeLock::max($siblings, 'position');
+            $max = (clone $siblings)->max('position');
 
-            return $max === null ? 0 : $max + 1;
+            return is_numeric($max) ? (int) $max + 1 : 0;
         }
 
         (clone $siblings)->where('position', '>=', $position)->increment('position');
