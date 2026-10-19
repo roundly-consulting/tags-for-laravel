@@ -23,7 +23,7 @@ use RoundlyConsulting\Tags\Types\TagTypeRegistry;
 
 /**
  * Rename a tag, or change its description, manual slug, colour or icon. A name or description
- * merges per locale into the stored one. A locale's slug follows its name unless the type has
+ * merges per locale into the stored one; a blank or null description entry clears that locale. A locale's slug follows its name unless the type has
  * stable slugs; a rename onto a slug another tag holds is refused — pointing to `restore()` when
  * a deleted tag holds it, because a deleted name stays reserved.
  */
@@ -39,6 +39,7 @@ final readonly class UpdateTagAction
 
         $name = $data->name instanceof NotGiven ? null : TagName::map($data->name);
         $description = $data->description instanceof NotGiven ? null : TagAttributes::description($data->description);
+        $cleared = $data->description instanceof NotGiven ? [] : TagAttributes::clearedLocales($data->description);
         $slug = $data->slug instanceof NotGiven ? null : TagAttributes::slug($data->slug);
         $color = $data->color instanceof NotGiven ? null : TagAttributes::color($data->color);
         $icon = $data->icon instanceof NotGiven ? null : TagAttributes::icon($data->icon);
@@ -47,7 +48,7 @@ final readonly class UpdateTagAction
             throw InvalidTagException::manualSlugOnFreeForm($type->name);
         }
 
-        return TagTransaction::run(static function () use ($tag, $type, $data, $name, $description, $slug, $color, $icon): Tag {
+        return TagTransaction::run(static function () use ($tag, $type, $data, $name, $description, $cleared, $slug, $color, $icon): Tag {
             $fresh = TagModel::query()->whereKey($tag->getKey())->lockForUpdate()->first()
                 ?? throw TagNotFoundException::trashed();
 
@@ -85,7 +86,10 @@ final readonly class UpdateTagAction
             }
 
             if (! $data->description instanceof NotGiven) {
-                $merged = $description === [] ? [] : [...$fresh->getTranslations('description'), ...($description ?? [])];
+                // `null` clears every locale; a blank or null entry clears its own.
+                $merged = $data->description === null
+                    ? []
+                    : array_diff_key([...$fresh->getTranslations('description'), ...($description ?? [])], array_flip($cleared));
 
                 if ($merged !== $fresh->getTranslations('description')) {
                     $changed[] = 'description';

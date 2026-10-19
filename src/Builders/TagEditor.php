@@ -20,7 +20,7 @@ final class TagEditor
     /** @var NotGiven|string|array<string, string> */
     private NotGiven|string|array $name;
 
-    /** @var NotGiven|string|array<string, string>|null */
+    /** @var NotGiven|string|array<string, string|null>|null */
     private NotGiven|string|array|null $description;
 
     /** @var NotGiven|string|array<string, string> */
@@ -52,7 +52,9 @@ final class TagEditor
     }
 
     /**
-     * @param  string|array<string, string>|null  $description
+     * `null` clears every locale; a blank or null entry (`['en' => null]`) clears that locale.
+     *
+     * @param  string|array<string, string|null>|null  $description
      */
     public function description(string|array|null $description): self
     {

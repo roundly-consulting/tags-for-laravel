@@ -104,7 +104,7 @@ final class TagController extends Controller
 
         $updated = $handle->update($model, new UpdateTagData(
             name: array_key_exists('name', $validated) ? self::map($validated['name']) : new NotGiven,
-            description: array_key_exists('description', $validated) ? ($validated['description'] === null ? null : self::map($validated['description'])) : new NotGiven,
+            description: array_key_exists('description', $validated) ? ($validated['description'] === null ? null : self::descriptionChanges($validated['description'])) : new NotGiven,
             slug: array_key_exists('slug', $validated) ? self::map($validated['slug']) : new NotGiven,
             color: array_key_exists('color', $validated) ? self::string($validated['color']) : new NotGiven,
             icon: array_key_exists('icon', $validated) ? self::string($validated['icon']) : new NotGiven,
@@ -142,6 +142,8 @@ final class TagController extends Controller
     }
 
     /**
+     * A locale map from the body; blank and null entries are dropped.
+     *
      * @return array<string, string>
      */
     private static function map(mixed $value): array
@@ -152,6 +154,23 @@ final class TagController extends Controller
             if (is_string($text) && $text !== '') {
                 $map[(string) $locale] = $text;
             }
+        }
+
+        return $map;
+    }
+
+    /**
+     * A description update's locale map: a blank or null entry stays, as null — it clears that
+     * locale.
+     *
+     * @return array<string, string|null>
+     */
+    private static function descriptionChanges(mixed $value): array
+    {
+        $map = [];
+
+        foreach (is_array($value) ? $value : [] as $locale => $text) {
+            $map[(string) $locale] = is_string($text) && $text !== '' ? $text : null;
         }
 
         return $map;

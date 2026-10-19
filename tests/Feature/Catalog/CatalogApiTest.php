@@ -83,6 +83,23 @@ test('update_distinguishes_not_given_from_null', function (): void {
         ->and($cleared->getTranslations('description'))->toBe([]);
 });
 
+// A blank (or null) entry clears that locale's description only; `null` for the whole field
+// clears every locale; an empty map changes nothing.
+test('clearing_one_locales_description_keeps_the_others', function (): void {
+    $tags = Tags::type('tag');
+    $tag = $tags->make('Rock')->description(['en' => 'Loud.', 'sk' => 'Hlasné.'])->create();
+
+    expect($tags->update($tag, new UpdateTagData(description: ['en' => '']))->getTranslations('description'))->toBe(['sk' => 'Hlasné.'])
+        ->and($tags->update($tag, new UpdateTagData(description: ['en' => 'Loud again.', 'sk' => null]))->getTranslations('description'))->toBe(['en' => 'Loud again.'])
+        ->and($tags->update($tag, new UpdateTagData(description: []))->getTranslations('description'))->toBe(['en' => 'Loud again.'])
+        ->and($tags->update($tag, new UpdateTagData(description: ['sk' => 'Hlasné.']))->getTranslations('description'))->toBe(['en' => 'Loud again.', 'sk' => 'Hlasné.']);
+
+    app()->setLocale('sk');
+
+    expect($tags->update($tag, new UpdateTagData(description: '  '))->getTranslations('description'))->toBe(['en' => 'Loud again.'])
+        ->and($tags->update($tag, new UpdateTagData(description: null))->getTranslations('description'))->toBe([]);
+});
+
 it('edits a tag fluently', function (): void {
     $tag = Tags::type('tag')->make(['en' => 'Rock', 'sk' => 'Skala'])->create();
 

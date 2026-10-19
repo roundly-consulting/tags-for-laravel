@@ -8,13 +8,14 @@ use RoundlyConsulting\Tags\Support\NotGiven;
 
 /**
  * Changes to a tag. Every field left as {@see NotGiven} stays; `null` clears a description,
- * colour or icon. A name or description map merges into the stored one per locale.
+ * colour or icon. A name or description map merges into the stored one per locale, and a blank
+ * or null description entry (`['en' => null]`) clears that locale only.
  */
 final readonly class UpdateTagData
 {
     /**
      * @param  NotGiven|string|array<string, string>  $name
-     * @param  NotGiven|string|array<string, string>|null  $description
+     * @param  NotGiven|string|array<string, string|null>|null  $description
      * @param  NotGiven|string|array<string, string>  $slug
      */
     public function __construct(

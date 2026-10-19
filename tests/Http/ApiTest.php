@@ -230,6 +230,20 @@ test('a_search_with_a_comma_is_one_term', function (): void {
     $this->getJson('/api/tags/label?filter[search]=')->assertOk()->assertJsonCount(2, 'data');
 });
 
+test('clearing_one_locales_description_over_the_api_keeps_the_others', function (): void {
+    apiUser(admin: true);
+    $rock = Tags::type('genre')->make('Rock')->description(['en' => 'Loud.', 'sk' => 'Hlasné.'])->create();
+
+    $this->patchJson("/api/tags/genre/{$rock->getKey()}", ['description' => ['en' => null]])->assertOk();
+    expect($rock->fresh()?->getTranslations('description'))->toBe(['sk' => 'Hlasné.']);
+
+    $this->patchJson("/api/tags/genre/{$rock->getKey()}", ['description' => ['en' => 'Loud.', 'sk' => '']])->assertOk();
+    expect($rock->fresh()?->getTranslations('description'))->toBe(['en' => 'Loud.']);
+
+    $this->patchJson("/api/tags/genre/{$rock->getKey()}", ['description' => null])->assertOk();
+    expect($rock->fresh()?->getTranslations('description'))->toBe([]);
+});
+
 test('move_and_store_accept_an_integer_parent', function (): void {
     apiUser(admin: true);
 

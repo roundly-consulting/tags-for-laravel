@@ -52,7 +52,8 @@ final class TagAttributes
     /**
      * A plain-text description as a locale map (a string is the current locale): no markup, no
      * control characters other than line breaks and tabs, at most
-     * `tags.descriptions.max_length` characters per locale. Blank values are dropped.
+     * `tags.descriptions.max_length` characters per locale. Blank and null values are dropped —
+     * on an update they clear their locale ({@see self::clearedLocales()}).
      *
      * @param  string|array<array-key, mixed>|null  $description
      * @return array<string, string>
@@ -69,6 +70,10 @@ final class TagAttributes
 
         foreach ($input as $locale => $text) {
             TagName::ensureLocale($locale);
+
+            if ($text === null) {
+                continue;
+            }
 
             if (! is_string($text)) {
                 throw InvalidTagException::invalidDescription();
@@ -92,6 +97,31 @@ final class TagAttributes
         }
 
         return Translatable::fromInput($map);
+    }
+
+    /**
+     * The locales a description update clears: those given blank or null (a blank string is the
+     * current locale).
+     *
+     * @param  string|array<array-key, mixed>|null  $description
+     * @return list<string>
+     */
+    public static function clearedLocales(string|array|null $description): array
+    {
+        if ($description === null) {
+            return [];
+        }
+
+        $input = is_string($description) ? [Translatable::currentLocale() => $description] : $description;
+        $cleared = [];
+
+        foreach ($input as $locale => $text) {
+            if ($text === null || (is_string($text) && trim(mb_scrub($text, 'UTF-8')) === '')) {
+                $cleared[] = TagName::ensureLocale($locale);
+            }
+        }
+
+        return $cleared;
     }
 
     /**
