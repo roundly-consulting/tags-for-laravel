@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Tags;
 
 use BackedEnum;
 use Closure;
+use Illuminate\Container\Container as CurrentContainer;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
@@ -40,11 +41,15 @@ use RoundlyConsulting\Tags\Types\TagTypeRegistry;
  *
  * Not final on purpose: `TagsFake` extends it, so an injected manager still type-checks under
  * the fake.
+ *
+ * Octane-safe: the manager is a singleton a consumer resolves at boot, so it holds no container —
+ * actions and read services come from the current one ({@see self::container()}), so a binding a
+ * request's sandbox makes applies. The type registry is an app-lifetime singleton on purpose:
+ * types are defined once, at boot.
  */
 class TagsManager
 {
     public function __construct(
-        protected readonly Container $container,
         protected readonly TagTypeRegistry $registry,
     ) {}
 
@@ -219,17 +224,18 @@ class TagsManager
      */
     public function perform(TagOperation $operation, string $action, Closure $execute, array $context = []): mixed
     {
-        return $execute($this->container->make($action));
+        return $execute($this->container()->make($action));
     }
 
     /**
-     * The container the manager resolves actions and read services from.
+     * The container the manager resolves actions and read services from: always the current one,
+     * never the one it was built with.
      *
      * @internal
      */
     public function container(): Container
     {
-        return $this->container;
+        return CurrentContainer::getInstance();
     }
 
     /**

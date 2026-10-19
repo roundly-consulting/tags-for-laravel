@@ -6,7 +6,6 @@ namespace RoundlyConsulting\Tags\Testing;
 
 use BackedEnum;
 use Closure;
-use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Model;
 use PHPUnit\Framework\Assert as PHPUnit;
 use RoundlyConsulting\Tags\Contracts\Taggable;
@@ -32,9 +31,9 @@ final class TagsFake extends TagsManager
     /** @var list<RecordedTagOperation> */
     private array $recorded = [];
 
-    public function __construct(Container $container, TagTypeRegistry $registry)
+    public function __construct(TagTypeRegistry $registry)
     {
-        parent::__construct($container, $registry);
+        parent::__construct($registry);
     }
 
     public function perform(TagOperation $operation, string $action, Closure $execute, array $context = []): mixed
