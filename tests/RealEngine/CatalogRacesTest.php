@@ -26,6 +26,26 @@ test('concurrent_find_or_create_yields_one_tag', function (): void {
 
     expect($racer->outcome())->toBe((string) $parent->getKey())
         ->and(Tag::query()->withTrashed()->count())->toBe(1);
+
+    // A seeder's child: the tree lock serialises the two, and the second finds the first.
+    Tags::define('genre')->hierarchical();
+    $music = Tags::type('genre')->make('Music')->create();
+    $second = new Racer;
+
+    $jazz = DB::transaction(function () use ($second, $music): Tag {
+        $tag = Tags::type('genre')->make('Jazz')->under($music)->findOrCreate();
+
+        $second->run(static function (): string {
+            $genres = Tags::type('genre');
+
+            return (string) $genres->make('JAZZ')->under($genres->findOrFail('music'))->findOrCreate()->getKey();
+        })->waitUntilBlockedOrDone();
+
+        return $tag;
+    });
+
+    expect($second->outcome())->toBe((string) $jazz->getKey())
+        ->and(Tag::query()->where('type', 'genre')->count())->toBe(2);
 })->skip(fn (): bool => ! Racer::available(), 'needs a real engine and pcntl')->group('real-engine');
 
 it('refuses the second of two concurrent creates of one name', function (): void {

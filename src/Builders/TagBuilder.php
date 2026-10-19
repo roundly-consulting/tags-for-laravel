@@ -11,9 +11,9 @@ use RoundlyConsulting\Tags\Support\TagAttributes;
 use RoundlyConsulting\Tags\Support\TagDrafts;
 
 /**
- * A new tag, fluently: `Tags::type('genre')->make('Jazz')->under($music)->color('#f24e29')->create()`.
- * Validates eagerly where it can; `create()` builds a {@see TagData} and calls the handle, so the
- * builder and the DTO run the same code.
+ * A new tag, fluently: `Tags::type('genre')->make('Jazz')->under($music)->color('#f24e29')->create()`,
+ * or `->findOrCreate()` for a seeder that may run again. Validates eagerly where it can; both
+ * build a {@see TagData} and call the handle, so the builder and the DTO run the same code.
  */
 final class TagBuilder
 {
@@ -97,7 +97,22 @@ final class TagBuilder
 
     public function create(): Tag
     {
-        return $this->handle->create(new TagData(
+        return $this->handle->create($this->data());
+    }
+
+    /**
+     * The tag this name names (in the scope, else globally), or a new one with every attribute
+     * set here. A found tag is returned unchanged — never moved, recoloured or renamed — so a
+     * seeder may run again: `->make('Jazz')->under($music)->findOrCreate()`.
+     */
+    public function findOrCreate(): Tag
+    {
+        return $this->handle->findOrCreate($this->data());
+    }
+
+    private function data(): TagData
+    {
+        return new TagData(
             name: $this->name,
             description: $this->description,
             slug: $this->slug,
@@ -105,6 +120,6 @@ final class TagBuilder
             icon: $this->icon,
             parent: $this->parent,
             position: $this->position,
-        ));
+        );
     }
 }

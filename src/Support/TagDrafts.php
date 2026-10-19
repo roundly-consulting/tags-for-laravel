@@ -75,6 +75,32 @@ final class TagDrafts
     }
 
     /**
+     * Take the tree lock a child (or a tag at an explicit position) is created under, and re-read
+     * its parent under that lock: the parent may have moved or gone meanwhile. Inside the caller's
+     * transaction; a draft with neither returns as it is.
+     */
+    public static function underLock(TagDraft $draft): TagDraft
+    {
+        if ($draft->parent === null && $draft->position === null) {
+            return $draft;
+        }
+
+        TreeLock::lock($draft->type->name, $draft->scopeKey);
+
+        if ($draft->parent === null) {
+            return $draft;
+        }
+
+        $parent = TagModel::query()->withTrashed()->whereKey($draft->parent->getKey())->first();
+
+        if ($parent === null || $parent->trashed()) {
+            throw InvalidTagHierarchyException::parentTrashed();
+        }
+
+        return self::withParent($draft, $parent);
+    }
+
+    /**
      * The same draft under a freshly read parent.
      */
     public static function withParent(TagDraft $draft, ?Tag $parent): TagDraft

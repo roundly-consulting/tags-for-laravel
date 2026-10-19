@@ -90,11 +90,13 @@ final readonly class TypeTags
     }
 
     /**
-     * The tag the name names (in the scope, else globally), or a new one in the scope.
+     * The tag the name names (in the scope, else globally), or a new one in the scope. With a
+     * {@see TagData} (what `make(...)->findOrCreate()` passes), a new tag takes its parent,
+     * position, colour and the rest; a found tag is returned unchanged.
      *
-     * @param  string|array<string, string>  $name
+     * @param  string|array<string, string>|TagData  $name
      */
-    public function findOrCreate(string|array $name): Tag
+    public function findOrCreate(string|array|TagData $name): Tag
     {
         return $this->manager->perform(
             TagOperation::FindOrCreateTag,
