@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Tags\Actions\Maintenance;
 
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use RoundlyConsulting\Tags\DataTransferObjects\RepairOptions;
@@ -14,6 +15,8 @@ use RoundlyConsulting\Tags\Models\Tagging;
 use RoundlyConsulting\Tags\Support\ScopeKey;
 use RoundlyConsulting\Tags\Support\TagModel;
 use RoundlyConsulting\Tags\Support\TagPath;
+use RoundlyConsulting\Tags\Support\TagTransaction;
+use RoundlyConsulting\Tags\Support\TreeLock;
 
 /**
  * Put derived data back in line with the facts: paths and depths from the parent chain (a cycle
@@ -24,6 +27,8 @@ use RoundlyConsulting\Tags\Support\TagPath;
  */
 final readonly class RepairTagsAction
 {
+    private const int CHUNK = 500;
+
     public function execute(RepairOptions $options): RepairReport
     {
         [$paths, $cycles] = $options->paths ? $this->paths($options) : [0, 0];
@@ -36,11 +41,46 @@ final readonly class RepairTagsAction
     }
 
     /**
+     * One tree — one (type, scope) — at a time, each inside its tree lock and a transaction, so a
+     * tree write never interleaves with the fix (a dry run takes neither).
+     *
      * @return array{0: int, 1: int}
      */
     private function paths(RepairOptions $options): array
     {
-        $tags = $this->tags($options)->get(['id', 'type', 'scope_key', 'parent_id', 'path', 'depth']);
+        $fixed = 0;
+        $cycles = 0;
+
+        $trees = $this->tags($options)->reorder()->select(['type', 'scope_key'])->distinct()->orderBy('type')->orderBy('scope_key')->toBase()->get();
+
+        foreach ($trees as $tree) {
+            $type = (string) $tree->type;
+            $scopeKey = (string) $tree->scope_key;
+            $repair = fn (): array => $this->tree($type, $scopeKey, $options->dryRun);
+
+            [$treeFixed, $treeCycles] = $options->dryRun ? $repair() : TagTransaction::run(static function () use ($type, $scopeKey, $repair): array {
+                TreeLock::lock($type, $scopeKey);
+
+                return $repair();
+            });
+
+            $fixed += $treeFixed;
+            $cycles += $treeCycles;
+        }
+
+        return [$fixed, $cycles];
+    }
+
+    /**
+     * @return array{0: int, 1: int}
+     */
+    private function tree(string $type, string $scopeKey, bool $dryRun): array
+    {
+        $tags = TagModel::query()->withTrashed()
+            ->where('type', $type)
+            ->where('scope_key', $scopeKey)
+            ->orderBy(TagModel::make()->getKeyName())
+            ->get(['id', 'type', 'scope_key', 'parent_id', 'path', 'depth']);
         $byKey = $tags->keyBy(static fn (Tag $tag): string => (string) $tag->getKey());
         $fixed = 0;
         $cycles = 0;
@@ -81,7 +121,7 @@ final readonly class RepairTagsAction
             if ($tag->path !== $path || $tag->depth !== $depth) {
                 $fixed++;
 
-                if (! $options->dryRun) {
+                if (! $dryRun) {
                     TagModel::query()->withTrashed()->whereKey($tag->getKey())->toBase()->update(['path' => $path, 'depth' => $depth]);
                 }
             }
@@ -94,17 +134,19 @@ final readonly class RepairTagsAction
     {
         $fixed = 0;
 
-        foreach ($this->tags($options)->get(['id', 'scope_type', 'scope_id', 'scope_key']) as $tag) {
-            $expected = ScopeKey::fromColumns($tag->scope_type, $tag->scope_id);
+        $this->tags($options)->reorder()->select(['id', 'scope_type', 'scope_id', 'scope_key'])->chunkById(self::CHUNK, static function (Collection $tags) use (&$fixed, $options): void {
+            foreach ($tags as $tag) {
+                $expected = ScopeKey::fromColumns($tag->scope_type, $tag->scope_id);
 
-            if ($tag->scope_key !== $expected) {
-                $fixed++;
+                if ($tag->scope_key !== $expected) {
+                    $fixed++;
 
-                if (! $options->dryRun) {
-                    TagModel::query()->withTrashed()->whereKey($tag->getKey())->toBase()->update(['scope_key' => $expected]);
+                    if (! $options->dryRun) {
+                        TagModel::query()->withTrashed()->whereKey($tag->getKey())->toBase()->update(['scope_key' => $expected]);
+                    }
                 }
             }
-        }
+        });
 
         return $fixed;
     }
@@ -169,9 +211,36 @@ final readonly class RepairTagsAction
         return $removed;
     }
 
+    /**
+     * Usage counts from the taggings, a chunk of tags at a time. Each chunk locks its tag rows
+     * first (key order, the order every tagging write locks them in, after its taggable row — so
+     * no cycle), then counts their taggings: a concurrent attach either committed before the lock
+     * (counted) or waits and applies its delta after (exact). A dry run locks nothing.
+     */
     private function counts(RepairOptions $options): int
     {
+        $fixed = 0;
+
+        $this->tags($options)->reorder()->select(['id'])->chunkById(self::CHUNK, static function (Collection $chunk) use (&$fixed, $options): void {
+            $keys = array_values($chunk->modelKeys());
+            $recount = static fn (): int => self::recount($keys, $options->dryRun);
+
+            $fixed += $options->dryRun ? $recount() : TagTransaction::run($recount);
+        });
+
+        return $fixed;
+    }
+
+    /**
+     * @param  list<int|string>  $keys
+     */
+    private static function recount(array $keys, bool $dryRun): int
+    {
+        $query = TagModel::query()->withTrashed()->whereKey($keys)->orderBy(TagModel::make()->getKeyName());
+        $tags = ($dryRun ? $query : $query->lockForUpdate())->get(['id', 'usage_count']);
+
         $actual = Tagging::query()
+            ->whereIn('tag_id', $keys)
             ->selectRaw('tag_id, count(*) as aggregate')
             ->groupBy('tag_id')
             ->toBase()
@@ -180,14 +249,14 @@ final readonly class RepairTagsAction
 
         $fixed = 0;
 
-        foreach ($this->tags($options)->get(['id', 'usage_count']) as $tag) {
+        foreach ($tags as $tag) {
             $raw = $actual[(string) $tag->getKey()] ?? $actual[$tag->getKey()] ?? 0;
             $count = is_numeric($raw) ? (int) $raw : 0;
 
             if ($tag->usage_count !== $count) {
                 $fixed++;
 
-                if (! $options->dryRun) {
+                if (! $dryRun) {
                     TagModel::query()->withTrashed()->whereKey($tag->getKey())->toBase()->update(['usage_count' => $count]);
                 }
             }

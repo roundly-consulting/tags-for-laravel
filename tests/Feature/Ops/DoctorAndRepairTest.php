@@ -12,11 +12,14 @@ use RoundlyConsulting\Tags\Enums\TagOperation;
 use RoundlyConsulting\Tags\Facades\Tags;
 use RoundlyConsulting\Tags\Models\Tag;
 use RoundlyConsulting\Tags\Models\Tagging;
+use RoundlyConsulting\Tags\Support\Doctor;
 use RoundlyConsulting\Tags\Tests\Fixtures\Models\Article;
 use RoundlyConsulting\Tags\Tests\Fixtures\Models\Note;
 use RoundlyConsulting\Tags\Tests\Fixtures\Models\ScopedArticle;
 use RoundlyConsulting\Tags\Tests\Fixtures\Models\Team;
 use RoundlyConsulting\Tags\Tests\Fixtures\Models\UuidArticle;
+use RoundlyConsulting\Tags\Tests\Support\RecordsLocks;
+use RoundlyConsulting\Testing\Fixtures\LockRecorder;
 
 /**
  * @return list<array{severity: string, section: string, message: string}>
@@ -288,3 +291,75 @@ test('assert_repaired_sees_the_command', function (): void {
 
     $fake->assertRepaired(fn (RepairReport $report): bool => ! $report->dryRun);
 });
+
+test('doctor_scope_check_query_count_is_bounded', function (): void {
+    $acme = Team::query()->create(['name' => 'Acme']);
+    $globex = Team::query()->create(['name' => 'Globex']);
+
+    $queries = function (int $taggings) use ($acme, $globex): int {
+        while (Tagging::query()->count() < $taggings) {
+            $article = ScopedArticle::query()->create(['team_id' => $acme->getKey()]);
+            $article->attachTags('printer');
+            Note::query()->create(['body' => 'x'])->attachTags('global');
+        }
+
+        // One article moved teams: its tagging sits outside its scope.
+        ScopedArticle::query()->orderBy('id')->firstOrFail()->update(['team_id' => $globex->getKey()]);
+
+        DB::enableQueryLog();
+        DB::flushQueryLog();
+
+        $findings = app(Doctor::class)->run();
+
+        $count = count(DB::getQueryLog());
+        DB::disableQueryLog();
+
+        expect(collect($findings)->pluck('message')->join(' '))->toContain("1 tagging(s) sit outside their model's current scope");
+
+        return $count;
+    };
+
+    expect($queries(30))->toBe($queries(60));
+});
+
+test('repair_counts_lock_tag_rows_before_counting', function (): void {
+    Article::query()->create()->attachTags(['live', 'outdoor']);
+    Tag::query()->where('type', 'tag')->toBase()->update(['usage_count' => 7]);
+    $statements = [];
+    RecordsLocks::start();
+    DB::listen(static function ($query) use (&$statements): void {
+        $statements[] = $query->sql;
+    });
+
+    $report = Tags::repair(new RepairOptions(paths: false, scopeKeys: false, orphans: false));
+
+    $lock = collect($statements)->search(fn (string $sql): bool => str_contains($sql, 'lock-for-update') && str_contains($sql, '"tags"'));
+    $count = collect($statements)->search(fn (string $sql): bool => str_contains($sql, 'count(*)') && str_contains($sql, '"taggables"'));
+
+    expect($report->counts)->toBe(2)
+        ->and($lock)->toBeInt()
+        ->and($count)->toBeGreaterThan($lock)
+        ->and(collect(LockRecorder::recorded())->every(fn (array $recorded): bool => $recorded['transactionDepth'] >= 1))->toBeTrue()
+        ->and(Tag::query()->where('type', 'tag')->pluck('usage_count')->all())->toBe([1, 1]);
+})->skip(fn (): bool => ! RecordsLocks::available(), 'lock recording is a sqlite grammar');
+
+test('repair_paths_take_the_tree_lock', function (): void {
+    Tag::query()->whereKey($this->bebop->getKey())->toBase()->update(['path' => '/', 'depth' => 1]);
+    RecordsLocks::start();
+
+    Tags::repair(new RepairOptions(scopeKeys: false, counts: false, orphans: false, dryRun: true));
+
+    expect(RecordsLocks::writes())->toBe([]);
+
+    RecordsLocks::start();
+
+    $report = Tags::repair(new RepairOptions(scopeKeys: false, counts: false, orphans: false));
+    $writes = RecordsLocks::writes();
+
+    expect($report->paths)->toBe(1)
+        ->and($writes[0])->toBe('lock:tag_locks')
+        ->and($writes)->toContain('update:tags')
+        ->and(array_search('update:tags', $writes, true))->toBeGreaterThan(0)
+        ->and(collect(LockRecorder::recorded())->every(fn (array $recorded): bool => $recorded['transactionDepth'] >= 1))->toBeTrue()
+        ->and($this->bebop->fresh()?->depth)->toBe(3);
+})->skip(fn (): bool => ! RecordsLocks::available(), 'lock recording is a sqlite grammar');

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\DB;
+use RoundlyConsulting\Tags\DataTransferObjects\RepairOptions;
 use RoundlyConsulting\Tags\Exceptions\TagLimitExceededException;
 use RoundlyConsulting\Tags\Exceptions\TagNotFoundException;
 use RoundlyConsulting\Tags\Facades\Tags;
@@ -164,4 +165,33 @@ test('concurrent_delete_and_attach_leave_no_tagging_on_a_trashed_tag', function 
         ->and(Tagging::query()->where('tag_id', $rock->getKey())->count())->toBe(0)
         ->and($rock->fresh()?->usage_count)->toBe(0)
         ->and($rock->fresh()?->trashed())->toBeTrue();
+})->skip(fn (): bool => ! Racer::available(), 'needs a real engine and pcntl')->group('real-engine');
+
+test('repair_counts_stay_exact_under_concurrent_attaches', function (): void {
+    $live = Tags::type('tag')->make('Live')->create();
+    $articles = collect(range(1, 10))->map(fn (int $index): Article => Article::query()->create(['title' => "a{$index}"]));
+    // A drifted count the repair loop keeps putting right while the attaches run.
+    Tag::query()->whereKey($live->getKey())->toBase()->update(['usage_count' => 99]);
+
+    $repairer = (new Racer)->run(static function (): string {
+        foreach (range(1, 20) as $run) {
+            Tags::repair(new RepairOptions(paths: false, scopeKeys: false, orphans: false));
+        }
+
+        return 'repaired';
+    });
+
+    $attachers = $articles->map(fn (Article $article): Racer => (new Racer)->run(static function () use ($article): string {
+        Article::query()->findOrFail($article->getKey())->attachTags('live');
+
+        return 'attached';
+    }))->all();
+
+    $outcomes = [$repairer->outcome(), ...array_map(static fn (Racer $racer): string => $racer->outcome(), $attachers)];
+
+    // The last repair may have run before the last attach: a final one must find nothing.
+    expect(array_values(array_unique($outcomes)))->toBe(['repaired', 'attached'])
+        ->and(Tagging::query()->count())->toBe(10)
+        ->and($live->fresh()?->usage_count)->toBe(10)
+        ->and(Tags::repair(new RepairOptions(paths: false, scopeKeys: false, orphans: false, dryRun: true))->counts)->toBe(0);
 })->skip(fn (): bool => ! Racer::available(), 'needs a real engine and pcntl')->group('real-engine');

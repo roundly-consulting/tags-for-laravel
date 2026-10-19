@@ -6,13 +6,16 @@ namespace RoundlyConsulting\Tags\Support;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
+use Illuminate\Support\LazyCollection;
 use Illuminate\Support\Str;
+use ReflectionClass;
 use RoundlyConsulting\PackageToolkit\Enums\KeyType;
 use RoundlyConsulting\Sluggable\Support\IndexNames;
 use RoundlyConsulting\Tags\Actions\Maintenance\RepairTagsAction;
 use RoundlyConsulting\Tags\Contracts\Taggable;
 use RoundlyConsulting\Tags\DataTransferObjects\DoctorFinding;
 use RoundlyConsulting\Tags\DataTransferObjects\RepairOptions;
+use RoundlyConsulting\Tags\DataTransferObjects\ScopedTagging;
 use RoundlyConsulting\Tags\Enums\FindingSeverity;
 use RoundlyConsulting\Tags\Exceptions\TagsException;
 use RoundlyConsulting\Tags\Models\Tagging;
@@ -28,6 +31,8 @@ use Throwable;
  */
 final readonly class Doctor
 {
+    private const int PAGE = 500;
+
     public function __construct(
         private TagTypeRegistry $registry,
         private RepairTagsAction $repair,
@@ -226,7 +231,9 @@ final readonly class Doctor
 
     /**
      * Taggings whose tag no longer belongs to one of the model's candidate scopes (its
-     * `tagScope()` changed since): kept until the next sync of that type.
+     * `tagScope()` changed since): kept until the next sync of that type. Streams the scoped
+     * taggings of live tags in pages and loads each page's models with one query per class, so
+     * the query count does not grow with the taggings on a page.
      *
      * @param  callable(string, string): void  $warning
      */
@@ -239,28 +246,70 @@ final readonly class Doctor
         Tagging::query()
             ->join($tags->getTable(), $tags->getQualifiedKeyName(), '=', $taggings->qualifyColumn('tag_id'))
             ->where($tags->qualifyColumn('scope_key'), '!=', ScopeKey::GLOBAL)
+            ->whereNull($tags->qualifyColumn($tags->getDeletedAtColumn()))
             ->select([$taggings->qualifyColumn('taggable_type'), $taggings->qualifyColumn('taggable_id'), $tags->qualifyColumn('scope_key'), $tags->qualifyColumn('type')])
+            ->orderBy($taggings->qualifyColumn('taggable_type'))
             ->orderBy($taggings->qualifyColumn('taggable_id'))
+            ->orderBy($taggings->qualifyColumn('tag_id'))
             ->toBase()
-            ->get()
-            ->each(function (object $row) use (&$outside): void {
-                $class = Relation::getMorphedModel((string) $row->taggable_type) ?? (string) $row->taggable_type;
-                $type = $this->safely((string) $row->type);
-
-                if ($type === null || ! class_exists($class) || ! is_subclass_of($class, Taggable::class) || ! is_subclass_of($class, Model::class)) {
-                    return;
-                }
-
-                $model = $class::query()->withoutGlobalScopes()->whereKey($row->taggable_id)->first();
-
-                if ($model instanceof Taggable && ! in_array($row->scope_key, Taggings::candidateScopeKeys($model, $type), true)) {
-                    $outside++;
-                }
+            ->lazy(self::PAGE)
+            ->chunk(self::PAGE)
+            ->each(function (LazyCollection $page) use (&$outside): void {
+                $outside += $this->outsideScope($page->map(static fn (object $row): ScopedTagging => new ScopedTagging(
+                    (string) ($row->taggable_type ?? ''),
+                    (string) ($row->taggable_id ?? ''),
+                    (string) ($row->scope_key ?? ''),
+                    (string) ($row->type ?? ''),
+                )));
             });
 
         if ($outside > 0) {
             $warning('scopes', "{$outside} tagging(s) sit outside their model's current scope; the next sync of that type drops them.");
         }
+    }
+
+    /**
+     * The taggings of one page outside their model's candidate scopes. The models of one class load
+     * in one query; a `tagScope()` that reads a relation (`$this->team`) loads it for the whole
+     * page at its first read, where Eloquent supports relationship autoloading.
+     *
+     * @param  LazyCollection<int, ScopedTagging>  $page
+     */
+    private function outsideScope(LazyCollection $page): int
+    {
+        $outside = 0;
+
+        foreach ($page->groupBy(static fn (ScopedTagging $row): string => $row->taggableType) as $morph => $rows) {
+            $class = Relation::getMorphedModel((string) $morph) ?? (string) $morph;
+
+            if (! class_exists($class) || ! is_subclass_of($class, Taggable::class) || ! is_subclass_of($class, Model::class)) {
+                continue;
+            }
+
+            $models = $class::query()->withoutGlobalScopes()
+                ->whereKey($rows->map(static fn (ScopedTagging $row): string => $row->taggableId)->unique()->values()->all())
+                ->get();
+
+            // Relationship autoloading exists from Laravel 12.8 on; an older 12.x reads each model's
+            // relation lazily — slower, the same answer. A runtime check, as the analyser only sees
+            // the installed version.
+            if ((new ReflectionClass($models))->hasMethod('withRelationshipAutoloading')) {
+                $models->withRelationshipAutoloading();
+            }
+
+            $byKey = $models->keyBy(static fn (Model $model): string => (string) $model->getKey());
+
+            foreach ($rows as $row) {
+                $model = $byKey->get($row->taggableId);
+                $type = $this->safely($row->type);
+
+                if ($model instanceof Taggable && $type !== null && ! in_array($row->scopeKey, Taggings::candidateScopeKeys($model, $type), true)) {
+                    $outside++;
+                }
+            }
+        }
+
+        return $outside;
     }
 
     /**
