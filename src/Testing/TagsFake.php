@@ -133,10 +133,11 @@ final class TagsFake extends TagsManager
     public function assertSynced(Model $model, string|BackedEnum $type, ?array $tags = null): void
     {
         $name = TagTypeRegistry::nameOf($type);
+        $default = $this->registry->defaultType()?->name;
         $syncs = array_filter(
             $this->recorded(TagOperation::Sync),
             static fn (RecordedTagOperation $recorded): bool => $recorded->concerns($model)
-                && ($recorded->context['type'] ?? $recorded->changesType()) === $name,
+                && ($recorded->changesType() ?? $default) === $name,
         );
 
         PHPUnit::assertNotEmpty($syncs, "Expected the model's [{$name}] tags to be synced, but they were not.");

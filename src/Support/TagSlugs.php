@@ -86,24 +86,6 @@ final class TagSlugs
     }
 
     /**
-     * The slug of `$input` per locale of `$locales`.
-     *
-     * @param  list<string>  $locales
-     * @return array<string, string>
-     */
-    public static function candidates(string $input, array $locales): array
-    {
-        $definition = self::resolved();
-        $candidates = [];
-
-        foreach ($locales as $locale) {
-            $candidates[$locale] = self::slugify($input, $locale, $definition);
-        }
-
-        return $candidates;
-    }
-
-    /**
      * Whether a manual slug is already in the shape the pipeline produces.
      */
     public static function isNormalised(string $slug, string $locale): bool
