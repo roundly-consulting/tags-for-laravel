@@ -301,6 +301,9 @@ test('doctor_reports_a_taggable_whose_scope_is_unsaved', function (): void {
     $article = ScopedArticle::query()->create(['team_id' => $team->getKey()]);
     $article->attachTags('printer');
     Tagging::query()->update(['taggable_type' => (new GhostScopeArticle)->getMorphClass()]);
+    // A tagging whose model is gone is the orphan check's, not this one's.
+    $orphan = Tagging::query()->firstOrFail()->replicate();
+    $orphan->forceFill(['tag_id' => Tags::type('tag')->within($team)->make('Fax')->create()->getKey(), 'taggable_id' => 999999])->save();
 
     $findings = collect(doctorFindings());
 

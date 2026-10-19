@@ -287,9 +287,13 @@ test('a_tag_resource_outside_the_api_asks_the_tags_own_scope', function (): void
     $this->acme->delete();
     $orphan = (new TagResource($this->ours->fresh()))->resolve($request());
 
+    // A tag of a type nobody defines any more renders without its count.
+    $undefined = $this->global->replicate()->forceFill(['type' => 'gone', 'slug' => ['en' => 'gone']]);
+
     expect($ours)->toHaveKey('usage_count')
         ->and($global)->not->toHaveKey('usage_count')
         ->and($orphan)->not->toHaveKey('usage_count')
+        ->and((new TagResource($undefined))->resolve($request()))->not->toHaveKey('usage_count')
         ->and($asked)->toBe([$this->acme->getKey(), null]);
 });
 
