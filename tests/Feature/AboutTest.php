@@ -3,94 +3,40 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Artisan;
-use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
+use RoundlyConsulting\Tags\Facades\Tags;
 
 /**
- * The `php artisan about` section, pinned with testing-for-laravel's render check: it proves
- * the capture is not empty before anything else is trusted. Add the real secrets to the
- * first argument once the package reads any (API keys, signing keys, DSNs).
+ * The `php artisan about` section: shape only (key types, the default type, how many types and
+ * their names, the API switch). It reads type names without resolving them, so a broken type
+ * definition never breaks `about`.
  */
 it('renders its about section', function (): void {
-    expect('tags')->toLeakNoSecrets([], mustRender: ['Enabled', 'YES', 'Timeout', '30s', 'Mode', 'sync']);
+    expect('tags')->toLeakNoSecrets(secrets: [], mustRender: ['Key types', 'Default type', 'Types', 'Routes', 'bigint (tags)', 'OFF']);
 });
 
-it('reads the enabled flag the way an env string means it', function (string|bool $value, string $shown): void {
-    // env() only maps true/false/(true)/(false); `TAGS_ENABLED=off` arrives as the
-    // string 'off', which a bare truthiness check reported as YES.
-    config()->set('tags.enabled', $value);
+it('lists the defined types, truncated after five', function (): void {
+    foreach (['a1', 'b1', 'c1', 'd1', 'e1', 'f1'] as $name) {
+        Tags::define($name);
+    }
 
     Artisan::call('about', ['--only' => 'tags']);
 
-    expect(Artisan::output())->toMatch('/Enabled\W+'.$shown.'\b/');
-})->with([
-    ['off', 'NO'],
-    ['no', 'NO'],
-    ['0', 'NO'],
-    [false, 'NO'],
-    ['on', 'YES'],
-    ['yes', 'YES'],
-    ['1', 'YES'],
-    [true, 'YES'],
-]);
-
-it('refuses an enabled flag it cannot read (strict config)', function (): void {
-    // A typo must fail loudly, naming the key, instead of quietly reading as a default.
-    config()->set('tags.enabled', 'disabled');
-
-    expect(fn () => Artisan::call('about', ['--only' => 'tags']))->toThrow(
-        InvalidConfigurationException::class,
-        'Configuration value [tags.enabled] must be a boolean',
-    );
+    expect(Artisan::output())->toMatch('/Types\W+7 \(a1, b1, c1, d1, e1, …\)/');
 });
 
-it('reads an integer setting from an env string (strict config)', function (): void {
-    // Every env value is a string: a canonical integer string is the number it spells.
-    config()->set('tags.timeout', '45');
+it('says when there is no default type and the API is on', function (): void {
+    config()->set('tags.default_type', '');
+    config()->set('tags.routes.enabled', 'on');
 
     Artisan::call('about', ['--only' => 'tags']);
 
-    expect(Artisan::output())->toMatch('/Timeout\W+45s\b/');
+    expect(Artisan::output())->toMatch('/Default type\W+NONE/')->toMatch('/Routes\W+ON/')->toMatch('/Types\W+0\b/');
 });
 
-it('refuses a junk or out-of-range integer instead of casting it (strict config)', function (mixed $value, string $expected): void {
-    // `(int) 'five'` is 0 — a timeout of none. Config::integer() throws instead, naming the key.
-    config()->set('tags.timeout', $value);
-
-    expect(fn () => Artisan::call('about', ['--only' => 'tags']))->toThrow(
-        InvalidConfigurationException::class,
-        "Configuration value [tags.timeout] must be {$expected}",
-    );
-})->with([
-    'word' => ['five', 'an integer'],
-    'decimal' => ['5.5', 'an integer'],
-    'suffix' => ['30s', 'an integer'],
-    'bool' => [true, 'an integer'],
-    'zero' => ['0', 'between 1 and 300'],
-    'too large' => [301, 'between 1 and 300'],
-]);
-
-it('refuses a value outside a fixed vocabulary instead of using the default (strict config)', function (mixed $value): void {
-    // Config::oneOf() (or Config::enum() once the package has an enum for it) lists the
-    // allowed values; a typo never falls back to the default.
-    config()->set('tags.mode', $value);
-
-    expect(fn () => Artisan::call('about', ['--only' => 'tags']))->toThrow(
-        InvalidConfigurationException::class,
-        'Configuration value [tags.mode] must be one of [sync, queue]',
-    );
-})->with(['typo' => ['queued'], 'casing' => ['Sync'], 'number' => [1]]);
-
-it('uses the defaults when a key is not set (strict config)', function (?string $value): void {
-    // Blank means not set: an absent key, null and a host's `KEY=` (empty or whitespace
-    // only) all take the default — on a switch too, where a blank is never read as false.
-    config()->set('tags.enabled', $value);
-    config()->set('tags.timeout', $value);
-    config()->set('tags.mode', $value);
+it('never resolves a type, so a broken one does not break about', function (): void {
+    Tags::define('broken')->max(0);
 
     Artisan::call('about', ['--only' => 'tags']);
 
-    expect(Artisan::output())
-        ->toMatch('/Enabled\W+YES\b/')
-        ->toMatch('/Timeout\W+30s\b/')
-        ->toMatch('/Mode\W+sync\b/');
-})->with(['null' => [null], 'empty env' => [''], 'whitespace' => ['  ']]);
+    expect(Artisan::output())->toContain('broken');
+});

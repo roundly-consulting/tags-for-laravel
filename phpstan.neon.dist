@@ -2,7 +2,16 @@ parameters:
     level: 7
     paths:
         - src
+        - database
         - config
+        # Host-model traits are analysed only where a class uses them.
+        - tests/Fixtures/Models/Article.php
+        - tests/Fixtures/Models/Note.php
+        - tests/Fixtures/Models/ScopedArticle.php
+        - tests/Fixtures/Models/BelongsToTeam.php
+        - tests/Fixtures/Models/FixtureKeys.php
+        - tests/Fixtures/Models/Team.php
+        - tests/Fixtures/Models/ArticleTagType.php
     # This package ships its own config/ dir; env() is correct there.
     configDirectories:
         - config

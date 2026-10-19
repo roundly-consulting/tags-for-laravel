@@ -7,55 +7,52 @@ namespace RoundlyConsulting\Tags\Testing;
 use Closure;
 use Illuminate\Contracts\Container\Container;
 use PHPUnit\Framework\Assert as PHPUnit;
-use RoundlyConsulting\Tags\DataTransferObjects\ExampleTagsData;
+use RoundlyConsulting\Tags\Enums\TagOperation;
 use RoundlyConsulting\Tags\TagsManager;
+use RoundlyConsulting\Tags\Types\TagTypeRegistry;
 
 /**
- * Test double installed by `Tags::fake()`. It extends the manager, so injected
- * managers keep type-checking, and it records every call instead of running the action.
- *
- * Grow it with the manager: override every mutating method (including the ones sub-accessors
- * and model traits reach), record the call, and ship an `assert<Verb>()` plus an
- * `assertNothing<Verb>()` for each.
+ * The test double `Tags::fake()` installs. It extends the manager, so injected managers keep
+ * type-checking, and it records every successful mutation — from the facade, dependency
+ * injection, handles, builders and model traits — while each call still runs for real.
  */
 final class TagsFake extends TagsManager
 {
-    /** @var list<ExampleTagsData> */
-    private array $examples = [];
+    /** @var list<RecordedTagOperation> */
+    private array $recorded = [];
 
-    public function __construct(Container $container)
+    public function __construct(Container $container, TagTypeRegistry $registry)
     {
-        parent::__construct($container);
+        parent::__construct($container, $registry);
     }
 
-    public function example(ExampleTagsData $data): string
+    public function perform(TagOperation $operation, string $action, Closure $execute, array $context = []): mixed
     {
-        $this->examples[] = $data;
+        $result = parent::perform($operation, $action, $execute, $context);
 
-        // Nothing ran, so there is nothing real to return — a canned value keeps the type.
-        return '';
+        $this->recorded[] = new RecordedTagOperation($operation, $context, $result);
+
+        return $result;
     }
 
     /**
-     * @param  (Closure(ExampleTagsData): bool)|null  $callback
+     * Every recorded operation, optionally of one kind, in call order.
+     *
+     * @return list<RecordedTagOperation>
      */
-    public function assertExampleCalled(?Closure $callback = null): void
+    public function recorded(?TagOperation $operation = null): array
     {
-        $matching = array_filter(
-            $this->examples,
-            static fn (ExampleTagsData $data): bool => $callback === null || $callback($data),
-        );
-
-        PHPUnit::assertNotEmpty($matching, $callback === null
-            ? 'Expected example() to be called, but it was not.'
-            : 'Expected example() to be called with matching data, but no call matched.');
+        return array_values(array_filter(
+            $this->recorded,
+            static fn (RecordedTagOperation $recorded): bool => $operation === null || $recorded->operation === $operation,
+        ));
     }
 
-    public function assertNothingCalled(): void
+    public function assertNothingHappened(): void
     {
         PHPUnit::assertEmpty(
-            $this->examples,
-            sprintf('Expected nothing to be called, but example() was called %d time(s).', count($this->examples)),
+            $this->recorded,
+            sprintf('Expected no tag operations, but %d were recorded.', count($this->recorded)),
         );
     }
 }

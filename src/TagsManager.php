@@ -4,44 +4,97 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Tags;
 
+use BackedEnum;
+use Closure;
 use Illuminate\Contracts\Container\Container;
-use RoundlyConsulting\Tags\Actions\ExampleTagsAction;
-use RoundlyConsulting\Tags\DataTransferObjects\ExampleTagsData;
+use Illuminate\Support\Collection;
+use RoundlyConsulting\Tags\Enums\TagOperation;
+use RoundlyConsulting\Tags\Handles\TypeTags;
+use RoundlyConsulting\Tags\Types\TagType;
+use RoundlyConsulting\Tags\Types\TagTypeBuilder;
+use RoundlyConsulting\Tags\Types\TagTypeRegistry;
 
 /**
- * The package's public API: the root behind the Tags facade, injectable by its
- * own class-string. Bound as a singleton in TagsServiceProvider::register().
+ * The package's public API: the root behind the `Tags` facade, injectable by its own
+ * class-string and bound as a singleton. Types are declared here (`define`, `extend`), the
+ * catalog of one type is reached through `type()`, and a model's tags through `for()` or the flat
+ * verbs. Every write funnels through {@see self::perform()}, which resolves the action from the
+ * container — so a host override applies and `Tags::fake()` records it.
  *
- * Follows the `laravel-package-developer` skill section
- * "Public API: Actions → Manager → Facade (REQUIRED)":
- *
- *  - Every method is thin — resolve one action through the container and call `execute()`.
- *    Never `new` an action, so host container overrides and the fake both apply.
- *  - Flat methods for the core verbs; a small `final readonly` sub-accessor per sub-area once
- *    there are two or more; `for($model)` for a model-scoped handle.
- *  - Every host-facing action (no `@internal`) must be reachable from here.
- *  - Model traits and model methods call this manager (`app(TagsManager::class)`),
- *    never an action — so the fake sees them too.
- *
- * Not final on purpose: TagsFake extends it, so code that constructor-injects this
- * class still type-checks under `Tags::fake()`. The arch test exempts it from
- * `finalByDefault` by name.
- *
- * Exempt shapes — a pure trait, a per-request static builder, package-author or dev-only
- * tooling — have no host-facing stateful behaviour: delete this manager, the facade, the fake,
- * the example action and FacadeTest, and say why in one README line.
+ * Not final on purpose: `TagsFake` extends it, so an injected manager still type-checks under
+ * the fake.
  */
 class TagsManager
 {
     public function __construct(
         protected readonly Container $container,
+        protected readonly TagTypeRegistry $registry,
     ) {}
 
     /**
-     * REPLACE ME — rename after the real verb the action performs.
+     * Declare a tag type, from a service provider's `boot()`. A second definition of the name
+     * throws; adjust another package's type with {@see self::extend()} or `tags.overrides`.
      */
-    public function example(ExampleTagsData $data): string
+    public function define(string|BackedEnum $type): TagTypeBuilder
     {
-        return $this->container->make(ExampleTagsAction::class)->execute($data);
+        return $this->registry->define($type);
+    }
+
+    /**
+     * Adjust a type from host code, whatever the provider order.
+     *
+     * @param  Closure(TagTypeBuilder): mixed  $callback
+     */
+    public function extend(string|BackedEnum $type, Closure $callback): void
+    {
+        $this->registry->extend($type, $callback);
+    }
+
+    /**
+     * Every defined type, resolved, keyed by name.
+     *
+     * @return Collection<string, TagType>
+     */
+    public function types(): Collection
+    {
+        return new Collection($this->registry->all());
+    }
+
+    /**
+     * The catalog of one type: create, find, move, suggest… Unknown names throw.
+     */
+    public function type(string|BackedEnum $type): TypeTags
+    {
+        return new TypeTags($this->registry->resolve($type));
+    }
+
+    /**
+     * Run one state-changing operation. Every flat verb, handle, builder and model method
+     * funnels its terminal call through here, resolving the action from the container, so host
+     * overrides apply and the fake records the call.
+     *
+     * @internal
+     *
+     * @template TAction of object
+     * @template TResult
+     *
+     * @param  class-string<TAction>  $action
+     * @param  Closure(TAction): TResult  $execute
+     * @param  array<string, mixed>  $context
+     * @return TResult
+     */
+    public function perform(TagOperation $operation, string $action, Closure $execute, array $context = []): mixed
+    {
+        return $execute($this->container->make($action));
+    }
+
+    /**
+     * The type registry the manager reads.
+     *
+     * @internal
+     */
+    public function registry(): TagTypeRegistry
+    {
+        return $this->registry;
     }
 }

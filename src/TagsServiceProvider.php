@@ -4,45 +4,63 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Tags;
 
+use RoundlyConsulting\PackageToolkit\Concerns\RegistersBlueprintMacros;
 use RoundlyConsulting\PackageToolkit\Package;
 use RoundlyConsulting\PackageToolkit\PackageServiceProvider;
-use RoundlyConsulting\PackageToolkit\Support\Config;
+use RoundlyConsulting\Tags\Commands\TypesCommand;
+use RoundlyConsulting\Tags\Support\TagsConfig;
+use RoundlyConsulting\Tags\Types\TagTypeRegistry;
 
 final class TagsServiceProvider extends PackageServiceProvider
 {
+    use RegistersBlueprintMacros;
+
     public function configurePackage(Package $package): void
     {
         $package
             ->name('tags')
             ->hasConfigFile()
-            // Read every setting through the toolkit's strict Config readers — boolean(),
-            // integer(), oneOf() / enum(), requireString() — never a cast or a truthiness check:
-            // env() leaves `off`/`no` as non-empty (truthy) strings, `(int) 'five'` is 0, and a
-            // typo must throw naming the key instead of falling back to a default. A blank value
-            // (a host's `KEY=`) is not set: the readers return the default, exactly as if absent.
-            ->contributesToAbout(static fn (): array => [
-                'Enabled' => Config::boolean('tags.enabled', true) ? 'YES' : 'NO',
-                'Timeout' => Config::integer('tags.timeout', 30, min: 1, max: 300).'s',
-                'Mode' => Config::oneOf('tags.mode', ['sync', 'queue'], 'sync'),
-            ]);
-
-        // Grow this as the package grows:
-        //   ->hasMigrations()
-        //   ->hasCommands([SomeCommand::class])
-        //   ->hasViews() / ->hasTranslations()
-        //   ->hasRoutes('tags.php')
-        // See RoundlyConsulting\PackageToolkit\Package for the full fluent API.
-        //
-        // The Tags facade's global alias is declared in composer.json
-        // (extra.laravel.aliases), not here — the skill's facade rule, and package discovery
-        // registers it without booting any code.
+            ->hasMigrations()
+            ->hasTranslations()
+            ->hasCommands([
+                TypesCommand::class,
+            ])
+            ->contributesToAbout($this->aboutSection(...));
     }
 
     public function register(): void
     {
         parent::register();
 
-        // Container bindings (bind/singleton/scoped) go here — never in boot().
+        $this->app->singleton(TagTypeRegistry::class);
         $this->app->singleton(TagsManager::class);
+    }
+
+    public function boot(): void
+    {
+        parent::boot();
+
+        // The toolkit's morphKey()/ownerKey() macros the migrations use.
+        $this->registerBlueprintMacros();
+    }
+
+    /**
+     * Shape, never content a host would keep private: key types, the default type, how many
+     * types are defined and their names (truncated), and whether the API is on. Names are read,
+     * never resolved, so a misdefined type cannot break `about`.
+     *
+     * @return array<string, string>
+     */
+    private function aboutSection(): array
+    {
+        $names = $this->app->make(TagTypeRegistry::class)->names();
+        $shown = array_slice($names, 0, 5);
+
+        return [
+            'Key types' => TagsConfig::primaryKeyType()->value.' (tags), '.TagsConfig::keyType()->value.' (taggables, scopes)',
+            'Default type' => TagsConfig::defaultType() ?? 'NONE',
+            'Types' => count($names).($shown === [] ? '' : ' ('.implode(', ', $shown).(count($names) > 5 ? ', …' : '').')'),
+            'Routes' => TagsConfig::routesEnabled() ? 'ON' : 'OFF',
+        ];
     }
 }

@@ -2,65 +2,189 @@
 
 declare(strict_types=1);
 
+use RoundlyConsulting\Tags\Http\Resources\TagScopeResource;
+use RoundlyConsulting\Tags\Models\Tag;
+
 return [
 
     /*
     |--------------------------------------------------------------------------
-    | Enabled
+    | Key types
     |--------------------------------------------------------------------------
     |
-    | Placeholder setting so the service provider has something real to merge,
-    | publish, and report via `php artisan about`. Replace with the package's
-    | real configuration — every key here must be read somewhere under src/,
-    | and ConfigContractTest enforces both directions.
-    |
-    | Pass env values through raw — never `(bool) env()` or `filter_var()` —
-    | and read them with the toolkit's `Config::boolean()`: a typo then throws
-    | naming the key instead of silently becoming true or false. The false
-    | spellings are false/0/off/no.
-    |
-    | Blank means not set: a host's `TAGS_ENABLED=` (an empty or
-    | whitespace-only value) reads exactly like an absent key, so the default
-    | applies. The same holds for every key below.
+    | `primary_key_type` is the type of the package's own keys: tags.id,
+    | tags.parent_id and taggables.tag_id. `key_type` is the type of the keys
+    | the package points at: every taggable model (taggable_id) and every scope
+    | model (scope_id) must use it. Both are bigint, uuid or ulid, and both are
+    | frozen once the migrations ran.
     |
     */
 
-    'enabled' => env('TAGS_ENABLED', true),
+    'primary_key_type' => env('TAGS_PRIMARY_KEY_TYPE', 'bigint'),
+
+    'key_type' => env('TAGS_KEY_TYPE', 'bigint'),
 
     /*
     |--------------------------------------------------------------------------
-    | Timeout (an integer setting)
+    | Tables and the tag model
     |--------------------------------------------------------------------------
     |
-    | Placeholder showing how every number is read. Pass the env through raw —
-    | never `(int) env()`, `intval()` or an `is_numeric() ? … : default` guard,
-    | which turn `five` into 0 (a timeout of none) — and read it with
-    | `Config::integer($key, $default, min: …, max: …)`. An int or a canonical
-    | integer string (`'30'`) passes; `'five'`, `'5.5'`, `'30s'` or a value out
-    | of range throws naming the key. A key that is not set — absent, null or
-    | blank (`TAGS_TIMEOUT=`) — takes the default. Bound every
-    | number by its domain: a timeout or TTL of 0 must be impossible unless 0
-    | means something and is documented.
+    | Rename the tables before migrating when the host already owns a `tags`
+    | table. The tag model may be swapped for a subclass of the packaged one.
     |
     */
 
-    'timeout' => env('TAGS_TIMEOUT', 30),
+    'tables' => [
+        'tags' => 'tags',
+        'taggables' => 'taggables',
+        'locks' => 'tag_locks',
+    ],
+
+    'models' => [
+        'tag' => Tag::class,
+    ],
 
     /*
     |--------------------------------------------------------------------------
-    | Mode (a fixed vocabulary)
+    | Tag types
     |--------------------------------------------------------------------------
     |
-    | Placeholder showing how a setting with a fixed set of values is read:
-    | `Config::oneOf($key, ['sync', 'queue'], 'sync')`, or — once the package
-    | has a backed enum for it — `Config::enum($key, Mode::class, Mode::Sync)`.
-    | Never `Enum::tryFrom(config(…)) ?? Default`, `in_array() ? … : default`
-    | or `=== 'queue' ? A : B`: a typo must throw, listing the allowed values,
-    | not quietly become the default. A blank `TAGS_MODE=` is not
-    | set and takes the default.
+    | `default_type` is the type a plain string names when a call gives none.
+    | Unless something defines it, it is a flat, free-form, unlimited type.
+    | Blank means there is no default, so every string must name a type.
+    |
+    | `types` declares the host's own types (name => rules) and `overrides`
+    | adjusts any type, a package's included, after its definition and every
+    | Tags::extend() callback. Rule keys: label, hierarchical, max_depth, max,
+    | curated, stable_slugs, global_only, on, private.
     |
     */
 
-    'mode' => env('TAGS_MODE', 'sync'),
+    'default_type' => 'tag',
+
+    'types' => [],
+
+    'overrides' => [],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Names, descriptions and slugs
+    |--------------------------------------------------------------------------
+    |
+    | Lengths are per locale. The dictionary keeps C, C++ and C# three tags.
+    | `unicode` keeps non-ASCII letters in slugs (CJK, Cyrillic, …); off, such
+    | names are refused as unsluggable. Changing any slug setting later changes
+    | how new strings are matched, not stored slugs: run
+    | `php artisan sluggable:regenerate` on the tag model afterwards.
+    |
+    */
+
+    'names' => [
+        'max_length' => 64,
+    ],
+
+    'descriptions' => [
+        'max_length' => 500,
+    ],
+
+    'slugs' => [
+        'max_length' => 80,
+        'separator' => '-',
+        'unicode' => false,
+        'dictionary' => ['+' => 'plus', '#' => 'sharp', '&' => 'and', '@' => 'at'],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Hierarchy, suggestions and popularity
+    |--------------------------------------------------------------------------
+    |
+    | `hierarchy.max_depth` (1-10) caps every tree; a type asking for more is
+    | clamped to it. Limits bound what a single call may return.
+    |
+    */
+
+    'hierarchy' => [
+        'max_depth' => 5,
+    ],
+
+    'suggest' => [
+        'limit' => 10,
+        'max_limit' => 50,
+    ],
+
+    'popular' => [
+        'limit' => 10,
+        'max_limit' => 100,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | API aliases
+    |--------------------------------------------------------------------------
+    |
+    | The JSON API never takes a class name. `scopes` maps the aliases of
+    | `?scope=alias:key` to scope models, and `taggables` maps the aliases of
+    | `popular?on=alias` to taggable models.
+    |
+    */
+
+    'scopes' => [],
+
+    'taggables' => [],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Resources
+    |--------------------------------------------------------------------------
+    |
+    | How a tag's scope owner renders. Point it at your own JsonResource to add
+    | a name or anything else your API needs; it receives the scope model.
+    |
+    */
+
+    'resources' => [
+        'scope' => TagScopeResource::class,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Authorization
+    |--------------------------------------------------------------------------
+    |
+    | Gate abilities the JSON API checks. `view` (null = no check) receives the
+    | type name and the scope; `manage` receives the type name and the target
+    | scope (null = a global write); `scope` receives the scope model. The
+    | package defines no gates: an undefined ability denies.
+    |
+    */
+
+    'authorization' => [
+        'abilities' => [
+            'view' => null,
+            'manage' => 'tags.manage',
+            'scope' => 'tags.scope',
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | JSON API
+    |--------------------------------------------------------------------------
+    |
+    | Off by default. A blank TAGS_ROUTES= keeps it off. Limits are per minute,
+    | keyed by user, else by IP.
+    |
+    */
+
+    'routes' => [
+        'enabled' => env('TAGS_ROUTES') ?: 'off',
+        'prefix' => 'api',
+        'middleware' => ['api', 'auth', 'throttle:tags-api'],
+        'rate_limit' => 120,
+        'suggest_rate_limit' => 120,
+        'max_per_page' => 100,
+        'max_tree_nodes' => 1000,
+    ],
 
 ];
