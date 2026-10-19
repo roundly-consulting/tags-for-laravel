@@ -181,6 +181,28 @@ test('by_id_recipe_never_creates_numeric_names', function (): void {
         ->and(Tag::query()->where('type', 'label')->count())->toBe(1);
 })->skip(fn (): bool => config('tags.primary_key_type') !== 'bigint', 'int keys');
 
+// The same recipe on a model with a tagScope(): its own scope's tags come back, global ones too,
+// another scope's never — so the sync keeps what the rule let through.
+test('by_id_recipe_keeps_a_scoped_models_tags', function (): void {
+    $acme = Team::query()->create(['name' => 'Acme']);
+    $globex = Team::query()->create(['name' => 'Globex']);
+    $article = ScopedArticle::query()->create(['team_id' => $acme->getKey()]);
+    $article->attachTags(['mine'], 'label');
+    $mine = $article->tagsOf('label')->firstOrFail();
+    $global = Tags::type('label')->make('Shared')->create();
+    $theirs = Tags::type('label')->within($globex)->make('Theirs')->create();
+    $input = [(string) $mine->getKey(), (string) $global->getKey()];
+
+    $passes = Validator::make(['labels' => $input], ['labels' => ['array', TagsRule::for('label')->byId()->taggable($article)]])->passes();
+    $found = Tags::for($article)->findMany([...$input, (string) $theirs->getKey(), 'junk'], 'label');
+    $article->syncTags($found, 'label');
+
+    expect($passes)->toBeTrue()
+        ->and($found->map(fn (Tag $tag): string => $tag->slug)->all())->toBe(['mine', 'shared'])
+        ->and($article->tagsOf('label')->pluck('slug')->sort()->values()->all())->toBe(['mine', 'shared'])
+        ->and(Tags::for(new ScopedArticle(['team_id' => $acme->getKey()]))->findMany($input, 'label'))->toHaveCount(2);
+})->skip(fn (): bool => config('tags.primary_key_type') !== 'bigint', 'int keys');
+
 test('tags_filter_matches_the_scopes', function (string $mode, array $values, bool $descendants): void {
     $articles = [
         'bebop' => $this->jazz,

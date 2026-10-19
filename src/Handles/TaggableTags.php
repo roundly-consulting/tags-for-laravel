@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Tags\Contracts\Taggable;
 use RoundlyConsulting\Tags\DataTransferObjects\TagSelection;
 use RoundlyConsulting\Tags\Models\Tag;
+use RoundlyConsulting\Tags\Support\Taggings;
 use RoundlyConsulting\Tags\Support\TagModel;
 use RoundlyConsulting\Tags\Support\TagName;
 use RoundlyConsulting\Tags\Support\TagSlugs;
@@ -172,6 +173,22 @@ final readonly class TaggableTags
         }
 
         return true;
+    }
+
+    /**
+     * Live tags of a type by primary key, in the scopes this model reads — its `tagScope()` and the
+     * global tags (global only for a global-only type) — in the order given. Keys that are
+     * malformed, missing or of another type or scope are skipped: the recipe for ids a form
+     * validated with `TagsRule::for($type)->byId()->taggable($model)`.
+     *
+     * @param  array<array-key, mixed>  $keys
+     * @return Collection<int, Tag>
+     */
+    public function findMany(array $keys, string|BackedEnum $type): Collection
+    {
+        $type = $this->registry()->resolve($type);
+
+        return $this->manager->type($type->name)->within(Taggings::creationScope($this->taggable, $type))->findMany($keys);
     }
 
     public function model(): Model&Taggable

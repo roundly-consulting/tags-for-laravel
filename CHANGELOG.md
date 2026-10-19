@@ -34,7 +34,8 @@ Initial public release.
   restore starts clean.
 - Usage counts, `popular()` (by usage, or live on one taggable class with a visibility
   constraint) and `suggest()` autocomplete across locales.
-- `TagsRule` for form requests, `TagsFilter` for query-builder index endpoints,
+- `TagsRule` for form requests (`Tags::for($model)->findMany($ids, $type)` turns the keys it
+  validated into tags, in the model's scopes), `TagsFilter` for query-builder index endpoints,
   `TagSummaryResource` for nesting tags in host resources.
 - An opt-in JSON API (`tags.routes.enabled`): types, list or tree, show, suggest, popular and
   manager CRUD with moves and reorders, gated by the host's abilities, with no class names and no

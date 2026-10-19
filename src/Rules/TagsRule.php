@@ -37,8 +37,10 @@ use RoundlyConsulting\Translatable\Facades\Translatable;
  * value for a single type. A failure names the first entry that failed; a key of another scope
  * and a missing key fail alike ("unknown"), so the message reveals nothing about other scopes.
  *
- * Validated keys reach a write as strings, and a string is a name to the tagging verbs: pass
- * `Tags::type($type)->findMany($validated)` to the verb, never the raw array.
+ * Validated keys reach a write as strings, and a string is a name to the tagging verbs: pass the
+ * tags they name to the verb, never the raw array — `Tags::for($model)->findMany($validated, $type)`
+ * (the model's scopes, as `taggable()` validated them), or
+ * `Tags::type($type)->within($scope)->findMany($validated)` for a rule given `within($scope)`.
  */
 final class TagsRule implements ValidationRule
 {
