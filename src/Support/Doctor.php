@@ -10,6 +10,7 @@ use Illuminate\Support\LazyCollection;
 use Illuminate\Support\Str;
 use ReflectionClass;
 use RoundlyConsulting\PackageToolkit\Enums\KeyType;
+use RoundlyConsulting\Sluggable\Contracts\SlugLocales;
 use RoundlyConsulting\Sluggable\Support\IndexNames;
 use RoundlyConsulting\Tags\Actions\Maintenance\RepairTagsAction;
 use RoundlyConsulting\Tags\Contracts\Taggable;
@@ -55,6 +56,7 @@ final readonly class Doctor
         $this->limits($error);
         $this->trees($error, $warning);
         $this->indexes($error);
+        $this->locales($error, $warning);
         $this->keyTypes($error, $warning);
         $this->scopes($warning);
 
@@ -188,6 +190,30 @@ final readonly class Doctor
             if (! $schema->hasIndex($table, IndexNames::index($table, 'slug', $locale))) {
                 $error('indexes', "No unique slug index for the locale [{$locale}]: run php artisan sluggable:indexes on the tag model.");
             }
+        }
+    }
+
+    /**
+     * Tag names are stored per locale: a plain string names a tag in the current locale, so an app
+     * locale outside `translatable.locales` makes every tagging by name throw. A fallback locale
+     * outside it only means names never fall back to it.
+     *
+     * @param  callable(string, string): void  $error
+     * @param  callable(string, string): void  $warning
+     */
+    private function locales(callable $error, callable $warning): void
+    {
+        $locales = app(SlugLocales::class);
+        $supported = $locales->supported();
+        $current = $locales->current();
+        $fallback = $locales->fallback();
+
+        if (! in_array($current, $supported, true)) {
+            $error('locales', "The app locale [{$current}] is not one of the supported locales (translatable.locales): tagging by name fails until you add it.");
+        }
+
+        if ($fallback !== null && ! in_array($fallback, $supported, true)) {
+            $warning('locales', "The fallback locale [{$fallback}] (translatable.fallback_locale) is not one of the supported locales (translatable.locales): names never fall back to it.");
         }
     }
 

@@ -18,7 +18,7 @@ final class DoctorCommand extends Command
         {--counts : Also compare every usage count with its taggings}
         {--json : Print the findings as JSON}';
 
-    protected $description = 'Check tag types, trees, scopes, indexes, key types and counts';
+    protected $description = 'Check tag types, trees, scopes, indexes, locales, key types and counts';
 
     public function handle(Doctor $doctor): int
     {

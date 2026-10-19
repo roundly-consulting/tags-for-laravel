@@ -363,3 +363,35 @@ test('repair_paths_take_the_tree_lock', function (): void {
         ->and(collect(LockRecorder::recorded())->every(fn (array $recorded): bool => $recorded['transactionDepth'] >= 1))->toBeTrue()
         ->and($this->bebop->fresh()?->depth)->toBe(3);
 })->skip(fn (): bool => ! RecordsLocks::available(), 'lock recording is a sqlite grammar');
+
+test('doctor_reports_an_unsupported_app_locale', function (): void {
+    app()->setLocale('de');
+
+    $findings = collect(doctorFindings())->where('section', 'locales')->values()->all();
+
+    expect($findings)->toBe([[
+        'severity' => 'error',
+        'section' => 'locales',
+        'message' => 'The app locale [de] is not one of the supported locales (translatable.locales): tagging by name fails until you add it.',
+    ]]);
+
+    $this->artisan('tags:doctor')->assertFailed();
+
+    config()->set('translatable.locales', ['en', 'sk', 'de']);
+
+    expect(collect(doctorFindings())->where('section', 'locales')->all())->toBe([]);
+});
+
+test('doctor_warns_about_an_unsupported_fallback_locale', function (): void {
+    config()->set('translatable.fallback_locale', 'de');
+
+    $findings = collect(doctorFindings())->where('section', 'locales')->values()->all();
+
+    expect($findings)->toBe([[
+        'severity' => 'warning',
+        'section' => 'locales',
+        'message' => 'The fallback locale [de] (translatable.fallback_locale) is not one of the supported locales (translatable.locales): names never fall back to it.',
+    ]]);
+
+    $this->artisan('tags:doctor')->assertSuccessful();
+});

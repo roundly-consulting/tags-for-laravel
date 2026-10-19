@@ -33,6 +33,8 @@ php artisan vendor:publish --tag="tags-migrations"
 php artisan migrate
 ```
 
+Tag names are stored per locale: make sure your app locale is in `translatable.locales` (default `en`, `sk`).
+
 ## Usage
 
 Make a model taggable:
