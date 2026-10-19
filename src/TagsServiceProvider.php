@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Tags;
 
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 use RoundlyConsulting\PackageToolkit\Concerns\RegistersBlueprintMacros;
 use RoundlyConsulting\PackageToolkit\Package;
 use RoundlyConsulting\PackageToolkit\PackageServiceProvider;
@@ -22,6 +25,7 @@ final class TagsServiceProvider extends PackageServiceProvider
             ->hasConfigFile()
             ->hasMigrations()
             ->hasTranslations()
+            ->hasRoutes('tags.php', 'tags.routes.enabled')
             ->hasCommands([
                 TypesCommand::class,
             ])
@@ -42,6 +46,14 @@ final class TagsServiceProvider extends PackageServiceProvider
 
         // The toolkit's morphKey()/ownerKey() macros the migrations use.
         $this->registerBlueprintMacros();
+
+        if (TagsConfig::routesEnabled()) {
+            RateLimiter::for('tags-api', static fn (Request $request): Limit => Limit::perMinute(TagsConfig::rateLimit())
+                ->by((string) ($request->user()?->getAuthIdentifier() ?? $request->ip())));
+
+            RateLimiter::for('tags-suggest', static fn (Request $request): Limit => Limit::perMinute(TagsConfig::suggestRateLimit())
+                ->by('suggest:'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
+        }
     }
 
     /**

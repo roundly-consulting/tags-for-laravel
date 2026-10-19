@@ -20,3 +20,5 @@ uses(SwappedTagTestCase::class)->in('ModelSwap');
 // Key-type legs: the migrations read the key types, so each leg sets them before boot.
 uses(UuidKeyTestCase::class)->in('KeyTypes/UuidKeyTest.php');
 uses(UlidKeyTestCase::class)->in('KeyTypes/UlidKeyTest.php');
+
+require_once __DIR__.'/Http/Helpers.php';
