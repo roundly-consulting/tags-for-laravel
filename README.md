@@ -11,9 +11,9 @@
 
 # Tags for Laravel
 
-Typed taxonomies for any Eloquent model: flat tags or nested category trees, single- or
-multi-select, curated or free-form, global or tenant-scoped, and translatable in every locale
-— with autocomplete, usage counts and query scopes that never N+1.
+Typed taxonomies for any Eloquent model: flat labels or nested category trees, single- or
+multi-select, curated or free-form, global or tenant-scoped, and translatable in every locale —
+with autocomplete, usage counts and query scopes that never N+1.
 
 ## Installation
 
@@ -27,7 +27,50 @@ php artisan migrate
 
 ## Usage
 
-The usage example lands with the first working tagging flow.
+Make a model taggable:
+
+```php
+use Illuminate\Database\Eloquent\Model;
+use RoundlyConsulting\Tags\Concerns\HasTags;
+use RoundlyConsulting\Tags\Contracts\Taggable;
+
+final class Concert extends Model implements Taggable
+{
+    use HasTags;
+}
+```
+
+Declare your types, build a tree, tag, query and suggest:
+
+```php
+use RoundlyConsulting\Tags\Facades\Tags;
+
+// Declare your tag types once, in a service provider
+Tags::define('genre')->hierarchical()->single();   // a curated category tree, one per model
+Tags::define('label')->max(5);                     // free-form labels, up to five
+
+// Build the tree (names are translatable; a plain string is the current locale)
+$music = Tags::type('genre')->make(['en' => 'Music', 'sk' => 'Hudba'])->color('#f24e29')->create();
+$jazz = Tags::type('genre')->make('Jazz')->under($music)->create();
+
+// Tag any model that uses HasTags
+$concert->syncTags($jazz, 'genre');
+$concert->attachTags(['Live', 'Outdoor'], 'label');     // unknown labels are created on the fly
+
+// Query: "music" also matches everything under it
+Concert::withAnyTags(['music'], 'genre', descendants: true)->get();
+Concert::withAllTags(['live', 'outdoor'], 'label')->get();
+
+// Read without N+1
+foreach (Concert::with('tags')->get() as $concert) {
+    echo $concert->tagOf('genre')?->name;                         // Jazz
+    echo $concert->tagsOf('label')->pluck('name')->join(', ');    // Live, Outdoor
+}
+
+// Autocomplete and popularity
+Tags::type('label')->suggest('liv');    // prefix matches first, in every locale
+Tags::type('label')->popular(10);
+```
 
 <!-- roundly-docs:start -->
 ## Documentation
