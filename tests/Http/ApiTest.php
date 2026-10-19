@@ -244,6 +244,25 @@ test('clearing_one_locales_description_over_the_api_keeps_the_others', function 
     expect($rock->fresh()?->getTranslations('description'))->toBe([]);
 });
 
+// A store of a deleted tag's name brings it back: in its place unless the body names a parent,
+// where `null` asks for a root.
+test('store_of_a_deleted_name_moves_it_only_when_the_body_names_a_parent', function (): void {
+    apiUser(admin: true);
+    Tags::type('genre')->delete($this->jazz);
+
+    $this->postJson('/api/tags/genre', ['name' => ['en' => 'Jazz']])->assertCreated()
+        ->assertJsonPath('data.id', $this->jazz->getKey())
+        ->assertJsonPath('data.parent_id', $this->music->getKey())
+        ->assertJsonPath('data.depth', 2);
+
+    Tags::type('genre')->delete($this->jazz->fresh() ?? $this->jazz);
+
+    $this->postJson('/api/tags/genre', ['name' => ['en' => 'Jazz'], 'parent' => null])->assertCreated()
+        ->assertJsonPath('data.id', $this->jazz->getKey())
+        ->assertJsonPath('data.parent_id', null)
+        ->assertJsonPath('data.depth', 1);
+});
+
 test('move_and_store_accept_an_integer_parent', function (): void {
     apiUser(admin: true);
 
