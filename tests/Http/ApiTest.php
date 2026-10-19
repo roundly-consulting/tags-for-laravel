@@ -217,6 +217,18 @@ test('a_position_past_the_column_range_is_refused', function (): void {
         ->and(Tags::type('genre')->make('Near')->position(2_147_483_647)->create()->position)->toBe(2_147_483_647);
 });
 
+// query-builder splits a filter value on commas; the search is one term all the same.
+test('a_search_with_a_comma_is_one_term', function (): void {
+    apiUser();
+    Tags::type('label')->make('Printer')->create();
+    Tags::type('label')->make('Salt, pepper')->create();
+
+    $this->getJson('/api/tags/label?filter[search]='.urlencode('zzz, qqq'))->assertOk()->assertJsonCount(0, 'data');
+    $this->getJson('/api/tags/label?filter[search]=zzz,qqq')->assertOk()->assertJsonCount(0, 'data');
+    $this->getJson('/api/tags/label?filter[search]='.urlencode('salt, pep'))->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.slug', 'salt-pepper');
+    $this->getJson('/api/tags/label?filter[search]=')->assertOk()->assertJsonCount(2, 'data');
+});
+
 test('move_and_store_accept_an_integer_parent', function (): void {
     apiUser(admin: true);
 

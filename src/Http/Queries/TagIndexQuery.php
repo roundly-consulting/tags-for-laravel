@@ -37,7 +37,13 @@ final class TagIndexQuery implements Sort
     {
         $filters = [
             AllowedFilter::callback('search', static function (Builder $query, mixed $value): void {
-                Translatable::search($query, new TranslationSearch(['name'], is_string($value) ? $value : ''));
+                // query-builder splits a value on commas: the term is the value as sent, put back
+                // together. A blank search filters nothing, as an empty search box should.
+                $term = is_array($value) ? implode(',', array_filter($value, is_string(...))) : (is_string($value) ? $value : '');
+
+                if (trim($term) !== '') {
+                    Translatable::search($query, new TranslationSearch(['name'], $term));
+                }
             }),
             AllowedFilter::callback('parent', static function (Builder $query, mixed $value): void {
                 if ($value === 'root') {
