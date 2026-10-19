@@ -184,6 +184,20 @@ test('restore_after_a_direct_delete_starts_clean_over_the_api', function (): voi
     expect($article->tagsOf('label')->pluck('slug')->all())->toBe(['outdoor']);
 });
 
+test('move_and_store_accept_an_integer_parent', function (): void {
+    apiUser(admin: true);
+
+    $created = $this->postJson('/api/tags/genre', ['name' => ['en' => 'Bebop'], 'parent' => (int) $this->jazz->getKey()])
+        ->assertCreated()
+        ->assertJsonPath('data.depth', 3)
+        ->json('data.id');
+
+    $this->postJson("/api/tags/genre/{$created}/move", ['parent' => (int) $this->music->getKey()])
+        ->assertOk()
+        ->assertJsonPath('data.depth', 2)
+        ->assertJsonPath('data.parent_id', $this->music->getKey());
+})->skip(fn (): bool => config('tags.primary_key_type') !== 'bigint', 'int keys');
+
 it('refuses writes to readers', function (): void {
     apiUser();
 
