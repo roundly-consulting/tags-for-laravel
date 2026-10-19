@@ -15,6 +15,7 @@ use RoundlyConsulting\Tags\Testing\TagsFake;
  * @method static \RoundlyConsulting\Tags\Handles\TypeTags type(\BackedEnum|string $type)
  * @method static \RoundlyConsulting\Tags\Models\Tag|null find(int|string $key)
  * @method static \RoundlyConsulting\Tags\Models\Tag findOrFail(int|string $key)
+ * @method static void loadAncestors(iterable<mixed> $tags)
  * @method static \RoundlyConsulting\Tags\Handles\TaggableTags for(\Illuminate\Database\Eloquent\Model&\RoundlyConsulting\Tags\Contracts\Taggable $taggable)
  * @method static \RoundlyConsulting\Tags\DataTransferObjects\TagChanges attach(\Illuminate\Database\Eloquent\Model&\RoundlyConsulting\Tags\Contracts\Taggable $taggable, mixed $tags, \BackedEnum|string|null $type = null)
  * @method static \RoundlyConsulting\Tags\DataTransferObjects\TagChanges detach(\Illuminate\Database\Eloquent\Model&\RoundlyConsulting\Tags\Contracts\Taggable $taggable, mixed $tags, \BackedEnum|string|null $type = null)

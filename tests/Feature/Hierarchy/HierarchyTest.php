@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use PHPUnit\Framework\ExpectationFailedException;
@@ -19,6 +21,7 @@ use RoundlyConsulting\Tags\Exceptions\TagScopeMismatchException;
 use RoundlyConsulting\Tags\Exceptions\TagTypeMismatchException;
 use RoundlyConsulting\Tags\Facades\Tags;
 use RoundlyConsulting\Tags\Handles\TypeTags;
+use RoundlyConsulting\Tags\Http\Resources\TagSummaryResource;
 use RoundlyConsulting\Tags\Models\Tag;
 use RoundlyConsulting\Tags\Tests\Fixtures\Models\Article;
 use RoundlyConsulting\Tags\Tests\Fixtures\Models\Team;
@@ -308,6 +311,83 @@ test('ancestors_in_one_query', function (): void {
         ->and($this->music->ancestors()->all())->toBe([])
         ->and($this->jazz->siblings()->count())->toBe(0)
         ->and($this->music->descendants()->count())->toBe(2);
+});
+
+test('load_ancestors_runs_one_query_for_many_tags', function (): void {
+    foreach (range(1, 5) as $i) {
+        $parent = $this->genres->make("Style {$i}")->under($this->music)->create();
+
+        foreach (range(1, 5) as $j) {
+            $this->genres->make("Sub {$i}.{$j}")->under($parent)->create();
+        }
+    }
+
+    $tags = Tag::query()->where('depth', 3)->orderBy('id')->get();
+
+    DB::enableQueryLog();
+    DB::flushQueryLog();
+
+    Tags::loadAncestors($tags);
+
+    expect(DB::getQueryLog())->toHaveCount(1);
+
+    DB::flushQueryLog();
+
+    $paths = $tags->map(fn (Tag $tag): string => $tag->ancestors()->pluck('name')->join(' › '));
+    $rendered = $tags->map(fn (Tag $tag): array => (new TagSummaryResource($tag))->resolve(Request::create('/')));
+
+    expect(DB::getQueryLog())->toBe([])
+        ->and($tags)->toHaveCount(26)
+        ->and($paths->first())->toBe('Music › Jazz')
+        ->and($paths->last())->toBe('Music › Style 5')
+        ->and($rendered->last()['ancestors'] ?? null)->toBe([
+            (new TagSummaryResource($this->music->fresh()))->resolve(Request::create('/')),
+            (new TagSummaryResource(Tag::query()->where('slug->en', 'style-5')->firstOrFail()))->resolve(Request::create('/')),
+        ]);
+});
+
+test('ancestors_reads_the_loaded_relation', function (): void {
+    $bebop = Tag::query()->findOrFail($this->bebop->getKey());
+    $unloaded = Tag::query()->findOrFail($this->bebop->getKey());
+
+    Tags::loadAncestors([$bebop]);
+
+    DB::enableQueryLog();
+    DB::flushQueryLog();
+
+    $breadcrumb = $bebop->ancestors()->push($bebop)->pluck('name')->join(' › ');
+
+    // Pushing onto the result never changes the loaded relation.
+    expect($bebop->ancestors()->pluck('name')->all())->toBe(['Music', 'Jazz'])
+        ->and($breadcrumb)->toBe('Music › Jazz › Bebop')
+        ->and(DB::getQueryLog())->toBe([])
+        ->and($unloaded->ancestors()->pluck('name')->all())->toBe(['Music', 'Jazz'])
+        ->and(DB::getQueryLog())->toHaveCount(1);
+
+    // A relation already loaded is left alone.
+    $custom = Tag::query()->findOrFail($this->jazz->getKey());
+    $custom->setRelation('ancestors', new EloquentCollection);
+    Tags::loadAncestors([$custom]);
+
+    expect($custom->ancestors()->all())->toBe([]);
+});
+
+test('load_ancestors_skips_nulls_and_refuses_other_values', function (): void {
+    $music = Tag::query()->findOrFail($this->music->getKey());
+    $article = Article::query()->create();
+
+    DB::enableQueryLog();
+    DB::flushQueryLog();
+
+    Tags::loadAncestors([]);
+    Tags::loadAncestors([null, null]);
+    Tags::loadAncestors([null, $music]);
+
+    expect(DB::getQueryLog())->toBe([])
+        ->and($music->relationLoaded('ancestors'))->toBeTrue()
+        ->and($music->ancestors()->all())->toBe([])
+        ->and(fn () => Tags::loadAncestors([$music, $article]))->toThrow(InvalidArgumentException::class, 'Tag models or nulls')
+        ->and(fn () => Tags::loadAncestors(['jazz']))->toThrow(InvalidArgumentException::class, 'Tag models or nulls');
 });
 
 it('lists the catalog handle as a type-safe handle', function (): void {

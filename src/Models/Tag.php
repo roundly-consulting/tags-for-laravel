@@ -177,12 +177,30 @@ class Tag extends Model implements Sluggable, Translatable
     }
 
     /**
-     * The ancestors, root first, in one query.
+     * The ancestors, root first, in one query — or none, when `Tags::loadAncestors()` (or the
+     * API) loaded the `ancestors` relation. A loaded relation is a snapshot: re-load after a move
+     * (actions return fresh models). The result is a new collection either way, so pushing onto
+     * it never changes the loaded relation.
      *
      * @return Collection<int, Tag>
      */
     public function ancestors(): Collection
     {
+        if ($this->relationLoaded('ancestors')) {
+            $loaded = $this->getRelation('ancestors');
+
+            /** @var Collection<int, Tag> $ancestors */
+            $ancestors = new Collection;
+
+            foreach (is_iterable($loaded) ? $loaded : [] as $ancestor) {
+                if ($ancestor instanceof Tag) {
+                    $ancestors->push($ancestor);
+                }
+            }
+
+            return $ancestors;
+        }
+
         $keys = TagPath::ancestorKeys($this->path);
 
         if ($keys === []) {

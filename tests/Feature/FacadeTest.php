@@ -2,8 +2,10 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Facade;
 use RoundlyConsulting\Tags\Facades\Tags;
+use RoundlyConsulting\Tags\Models\Tag;
 use RoundlyConsulting\Tags\TagsManager;
 use RoundlyConsulting\Tags\Testing\TagsFake;
 use RoundlyConsulting\Tags\Types\TagTypeBuilder;
@@ -48,4 +50,19 @@ it('declares the global alias for the facade and never a core facade name', func
     expect($aliases)->toBe([class_basename(Tags::class) => Tags::class])
         ->and(class_exists('Illuminate\\Support\\Facades\\'.$alias))->toBeFalse()
         ->and($coreAliases)->not->toContain(strtolower($alias));
+});
+
+it('loads ancestors through the facade and through dependency injection', function (): void {
+    Tags::define('genre')->hierarchical();
+    $music = Tags::type('genre')->make('Music')->create();
+    $jazz = Tags::type('genre')->make('Jazz')->under($music)->create();
+
+    $viaFacade = Tag::query()->findOrFail($jazz->getKey());
+    $viaContainer = Tag::query()->findOrFail($jazz->getKey());
+
+    Tags::loadAncestors([$viaFacade]);
+    app(TagsManager::class)->loadAncestors(new Collection([$viaContainer]));
+
+    expect($viaFacade->getRelation('ancestors')->pluck('slug')->all())->toBe(['music'])
+        ->and($viaContainer->getRelation('ancestors')->pluck('slug')->all())->toBe(['music']);
 });

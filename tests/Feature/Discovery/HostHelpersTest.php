@@ -277,3 +277,33 @@ test('tag_summary_resource_leaks_no_class_names', function (): void {
 
     expect($json)->not->toContain('\\\\')->not->toContain('Team')->not->toContain('scope');
 });
+
+test('tag_summary_resource_renders_loaded_ancestors_without_queries', function (): void {
+    $jazz = Tag::query()->findOrFail($this->jazz->getKey());
+    $rock = Tag::query()->findOrFail($this->rock->getKey());
+    Tags::loadAncestors([$jazz, $rock]);
+
+    DB::enableQueryLog();
+    DB::flushQueryLog();
+
+    $rendered = TagSummaryResource::collection([$jazz, $rock])->resolve(Request::create('/'));
+
+    expect(DB::getQueryLog())->toBe([])
+        ->and($rendered[0]['ancestors'])->toBe([[
+            'id' => $this->music->getKey(),
+            'type' => 'genre',
+            'name' => 'Music',
+            'slug' => 'music',
+            'color' => null,
+            'icon' => null,
+            'depth' => 1,
+        ]])
+        ->and($rendered[1]['ancestors'])->toBe([]);
+});
+
+test('tag_summary_resource_omits_ancestors_unless_loaded', function (): void {
+    $jazz = Tag::query()->findOrFail($this->jazz->getKey());
+
+    expect((new TagSummaryResource($jazz))->resolve(Request::create('/')))->not->toHaveKey('ancestors')
+        ->and(array_keys((new TagSummaryResource($jazz))->resolve(Request::create('/'))))->toBe(['id', 'type', 'name', 'slug', 'color', 'icon', 'depth']);
+});

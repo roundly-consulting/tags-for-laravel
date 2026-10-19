@@ -26,6 +26,7 @@ use RoundlyConsulting\Tags\Exceptions\TagNotFoundException;
 use RoundlyConsulting\Tags\Handles\TaggableTags;
 use RoundlyConsulting\Tags\Handles\TypeTags;
 use RoundlyConsulting\Tags\Models\Tag;
+use RoundlyConsulting\Tags\Queries\LoadAncestors;
 use RoundlyConsulting\Tags\Support\KeyShape;
 use RoundlyConsulting\Tags\Support\TagModel;
 use RoundlyConsulting\Tags\Types\TagType;
@@ -109,6 +110,18 @@ class TagsManager
     public function for(Model&Taggable $taggable): TaggableTags
     {
         return new TaggableTags($this, $taggable);
+    }
+
+    /**
+     * Load the ancestors of many tags in one query, so `$tag->ancestors()` and
+     * `TagSummaryResource` read them without a query: `Tags::loadAncestors($events->map->category)`.
+     * Nulls are skipped; anything else that is not a tag throws.
+     *
+     * @param  iterable<mixed>  $tags  Tag models or nulls
+     */
+    public function loadAncestors(iterable $tags): void
+    {
+        $this->container()->make(LoadAncestors::class)->load($tags);
     }
 
     /**

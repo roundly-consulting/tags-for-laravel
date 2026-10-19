@@ -62,7 +62,7 @@ final class TagController extends Controller
     {
         $tagType = $this->type($request, $type);
         $model = $this->pathTag($request, $this->handle($request, $tagType), $tag);
-        $model->setRelation('ancestors', $model->ancestors());
+        $this->manager()->loadAncestors([$model]);
         $this->share($request, $request->scopeModel());
 
         return (new TagResource($model))->response();
