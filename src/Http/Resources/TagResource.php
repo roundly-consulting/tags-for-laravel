@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use RoundlyConsulting\Tags\Http\Access;
 use RoundlyConsulting\Tags\Models\Tag;
+use RoundlyConsulting\Tags\Support\ScopeKey;
 use RoundlyConsulting\Tags\Support\TagsConfig;
 use RoundlyConsulting\Tags\Types\TagTypeRegistry;
 
@@ -16,8 +17,8 @@ use RoundlyConsulting\Tags\Types\TagTypeRegistry;
  * A tag as the API renders it. Name, slug and description are in the current locale; `type` is
  * the type name. The scope owner renders through `tags.resources.scope` (never a class name).
  * `usage_count` — which for a global tag adds up every tenant's taggings — and the full
- * `translations` (with `?include=translations`) render only to the type's managers; the check
- * runs once per type and scope per request.
+ * `translations` (with `?include=translations`) render only to managers of the type in the tag's
+ * own scope; the check runs once per type and scope per request.
  *
  * @property Tag $resource
  */
@@ -78,11 +79,25 @@ final class TagResource extends JsonResource
         return (new $resource($scope))->resolve($request);
     }
 
+    /**
+     * Whether the caller manages this tag: the type's `manage` ability in the tag's own scope — a
+     * global tag asks for global management, whatever scope the request reads.
+     */
     private static function managedBy(Request $request, Tag $tag): bool
     {
         $type = app(TagTypeRegistry::class)->find($tag->type);
-        $scope = $request->attributes->get('tags.request_scope');
 
-        return $type !== null && Access::canManage($request, $type, $scope instanceof Model ? $scope : null);
+        if ($type === null) {
+            return false;
+        }
+
+        if ($tag->scope_key === ScopeKey::GLOBAL) {
+            return Access::canManage($request, $type, null);
+        }
+
+        $requested = $request->attributes->get('tags.request_scope');
+        $owner = $requested instanceof Model && ScopeKey::for($requested) === $tag->scope_key ? $requested : $tag->scope;
+
+        return $owner instanceof Model && Access::canManage($request, $type, $owner);
     }
 }

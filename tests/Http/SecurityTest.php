@@ -12,6 +12,7 @@ use RoundlyConsulting\Tags\Http\Resources\TagResource;
 use RoundlyConsulting\Tags\Http\Resources\TagScopeResource;
 use RoundlyConsulting\Tags\Support\TagsConfig;
 use RoundlyConsulting\Tags\Tests\Fixtures\Models\HostScopeResource;
+use RoundlyConsulting\Tags\Tests\Fixtures\Models\ScopedArticle;
 use RoundlyConsulting\Tags\Tests\Fixtures\Models\Team;
 use RoundlyConsulting\Tags\Tests\Fixtures\Models\User;
 
@@ -202,6 +203,74 @@ test('usage_count_gate_runs_once_per_type_and_scope', function (): void {
     $this->getJson('/api/tags/label')->assertOk()->assertJsonCount(11, 'data');
 
     expect($calls)->toBe(1);
+});
+
+// OQ-38: a global tag's count adds up every tenant's taggings. A team admin who manages its own
+// team's tags — and whom the host's gate keeps off global ones — sees the counts of its team's
+// tags only, and lists deleted tags of its team only.
+test('a_tenant_manager_never_sees_global_usage_counts', function (): void {
+    $ours = ScopedArticle::query()->create(['title' => 'A', 'team_id' => $this->acme->getKey()]);
+    $ours->attachTags([$this->ours], 'label');
+
+    foreach (range(1, 3) as $index) {
+        ScopedArticle::query()->create(['title' => "G{$index}", 'team_id' => $this->globex->getKey()])->attachTags([$this->global], 'label');
+    }
+
+    $gone = Tags::type('label')->make('Gone global')->create();
+    Tags::type('label')->delete($gone);
+    $goneOurs = Tags::type('label')->within($this->acme)->make('Gone ours')->create();
+    Tags::type('label')->within($this->acme)->delete($goneOurs);
+
+    $admin = User::query()->create(['name' => 'Acme admin', 'team_id' => $this->acme->getKey()]);
+    $this->actingAs($admin);
+    Gate::define('tags.manage', static fn (User $user, string $type, ?Model $scope = null): bool => $scope !== null && $scope->getKey() === $user->team_id);
+    Gate::define('tags.scope', static fn (User $user, Model $scope): bool => $scope->getKey() === $user->team_id);
+    $acme = 'scope=team:'.$this->acme->getKey();
+
+    $rows = collect($this->getJson("/api/tags/label?{$acme}")->assertOk()->json('data'))->keyBy('slug');
+
+    expect($rows['printer'])->not->toHaveKey('usage_count')
+        ->and($rows['scanner']['usage_count'])->toBe(1);
+
+    foreach (["/api/tags/label/suggest?q=printer&{$acme}", "/api/tags/label/popular?{$acme}", "/api/tags/label/printer?{$acme}"] as $url) {
+        $printer = collect($this->getJson($url)->assertOk()->json('data'))->pipe(
+            static fn ($data) => $data->has('slug') ? $data->all() : $data->firstWhere('slug', 'printer'),
+        );
+
+        expect($printer)->not->toHaveKey('usage_count');
+    }
+
+    $trashed = collect($this->getJson("/api/tags/label?filter[trashed]=only&{$acme}")->assertOk()->json('data'))->pluck('slug')->all();
+    $with = collect($this->getJson("/api/tags/label?filter[trashed]=with&{$acme}")->assertOk()->json('data'))->pluck('slug')->sort()->values()->all();
+
+    expect($trashed)->toBe(['gone-ours'])
+        ->and($with)->toBe(['gone-ours', 'printer', 'scanner']);
+});
+
+test('a_tag_resource_outside_the_api_asks_the_tags_own_scope', function (): void {
+    $asked = [];
+    Gate::define('tags.manage', static function (User $user, string $type, ?Model $scope = null) use (&$asked): bool {
+        $asked[] = $scope?->getKey();
+
+        return $scope !== null;
+    });
+    $user = User::query()->create(['name' => 'Host']);
+    $request = static function () use ($user): Request {
+        $request = Request::create('/host');
+        $request->setUserResolver(static fn (): User => $user);
+
+        return $request;
+    };
+
+    $ours = (new TagResource($this->ours))->resolve($request());
+    $global = (new TagResource($this->global))->resolve($request());
+    $this->acme->delete();
+    $orphan = (new TagResource($this->ours->fresh()))->resolve($request());
+
+    expect($ours)->toHaveKey('usage_count')
+        ->and($global)->not->toHaveKey('usage_count')
+        ->and($orphan)->not->toHaveKey('usage_count')
+        ->and($asked)->toBe([$this->acme->getKey(), null]);
 });
 
 test('translations_include_needs_manage', function (): void {

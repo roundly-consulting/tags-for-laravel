@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Tags\Http\Queries;
 
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Http\Request;
 use RoundlyConsulting\QueryBuilder\AllowedFilter;
 use RoundlyConsulting\QueryBuilder\AllowedSort;
@@ -21,7 +22,7 @@ use RoundlyConsulting\Translatable\Facades\Translatable;
 
 /**
  * The tag list's allow-list: filters `search` (name contains, escaped), `parent` (a key or
- * `root`), `depth`, `ids`, `slug` and — for managers — `trashed`; sorts `position` (default),
+ * `root`), `depth`, `ids`, `slug` and — for managers, over the scopes they manage — `trashed`; sorts `position` (default),
  * `name` (current locale), `usage_count` and `created_at`.
  *
  * @internal
@@ -29,11 +30,13 @@ use RoundlyConsulting\Translatable\Facades\Translatable;
 final class TagIndexQuery implements Sort
 {
     /**
-     * The allow-listed list of one type in the readable scopes.
+     * The allow-listed list of one type in the readable scopes. `filter[trashed]` is allowed when
+     * the caller manages one of them, and lists deleted tags of those scopes only.
      *
      * @param  list<string>  $scopeKeys
+     * @param  list<string>  $managedScopeKeys
      */
-    public static function for(string $type, array $scopeKeys, Request $request, bool $manager): QueryBuilder
+    public static function for(string $type, array $scopeKeys, Request $request, array $managedScopeKeys = []): QueryBuilder
     {
         $filters = [
             AllowedFilter::callback('search', static function (Builder $query, mixed $value): void {
@@ -73,8 +76,17 @@ final class TagIndexQuery implements Sort
             }),
         ];
 
-        if ($manager) {
-            $filters[] = AllowedFilter::trashed();
+        if ($managedScopeKeys !== []) {
+            $filters[] = AllowedFilter::callback('trashed', static function (Builder $query, mixed $value) use ($managedScopeKeys): void {
+                $deletedAt = TagModel::make()->getQualifiedDeletedAtColumn();
+
+                if ($value === 'with') {
+                    $query->withoutGlobalScope(SoftDeletingScope::class)
+                        ->where(static fn (Builder $rows) => $rows->whereNull($deletedAt)->orWhereIn('scope_key', $managedScopeKeys));
+                } elseif ($value === 'only') {
+                    $query->withoutGlobalScope(SoftDeletingScope::class)->whereNotNull($deletedAt)->whereIn('scope_key', $managedScopeKeys);
+                }
+            });
         }
 
         // The allow-list first: the first call forwarded to the builder applies the request.

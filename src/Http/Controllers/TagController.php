@@ -18,6 +18,7 @@ use RoundlyConsulting\Tags\Http\Resources\TagNodeResource;
 use RoundlyConsulting\Tags\Http\Resources\TagResource;
 use RoundlyConsulting\Tags\Support\Messages;
 use RoundlyConsulting\Tags\Support\NotGiven;
+use RoundlyConsulting\Tags\Support\ScopeKey;
 use RoundlyConsulting\Tags\Support\TagModel;
 use RoundlyConsulting\Tags\Support\TagsConfig;
 
@@ -46,7 +47,12 @@ final class TagController extends Controller
             return TagNodeResource::collection($handle->tree())->response();
         }
 
-        $page = TagIndexQuery::for($tagType->name, $handle->readScopeKeys(), $request, $manager)
+        $managed = array_values(array_filter(
+            $handle->readScopeKeys(),
+            static fn (string $key): bool => Access::canManage($request, $tagType, $key === ScopeKey::GLOBAL ? null : $scope),
+        ));
+
+        $page = TagIndexQuery::for($tagType->name, $handle->readScopeKeys(), $request, $managed)
             ->orderBy(TagModel::make()->getQualifiedKeyName())
             ->paginate($request->perPage());
 
