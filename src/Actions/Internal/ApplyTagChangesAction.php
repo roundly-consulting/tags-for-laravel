@@ -17,8 +17,9 @@ use RoundlyConsulting\Tags\Support\TagModel;
 
 /**
  * Write a tagging change that has been decided: lock every tag row it touches (key order, the
- * order a tag delete locks them in), re-check that the tags to attach are still live, write the
- * pivot rows, adjust the counts and announce the change after commit.
+ * order a tag delete locks them in), re-check that the tags to attach are still live and that the
+ * tags to detach are still carried, write the pivot rows, adjust the counts by exactly the rows
+ * written and announce the change after commit.
  *
  * Inserts are plain inserts: under the taggable's lock no duplicate can race, and MySQL's
  * `INSERT IGNORE` would also turn a foreign-key or truncation error into a silent warning.
@@ -65,7 +66,7 @@ final readonly class ApplyTagChangesAction
             $attached[] = $tag;
         }
 
-        $detached = array_values(array_filter(array_map(static fn (int|string $key): ?Tag => $rows->get((string) $key), $detach)));
+        $detached = self::stillAttached($taggable, array_values(array_filter(array_map(static fn (int|string $key): ?Tag => $rows->get((string) $key), $detach))));
 
         if ($attached !== []) {
             $now = Carbon::now();
@@ -113,6 +114,33 @@ final readonly class ApplyTagChangesAction
         [$created, $restored] = [self::matching($attached, $stored, created: true), self::matching($attached, $stored, created: false)];
 
         return new TagChanges($taggable, $attached, $detached, $created, $restored);
+    }
+
+    /**
+     * The tags among `$tags` the model still carries, read with a locking read now that their rows
+     * are locked: the caller decided from a read taken before it waited for them, and a delete (and
+     * a restore) may have removed a tagging meanwhile. Only these are detached, counted and
+     * announced.
+     *
+     * @param  list<Tag>  $tags
+     * @return list<Tag>
+     */
+    private static function stillAttached(Model $taggable, array $tags): array
+    {
+        if ($tags === []) {
+            return [];
+        }
+
+        $carried = Tagging::query()
+            ->where('taggable_type', $taggable->getMorphClass())
+            ->where('taggable_id', $taggable->getKey())
+            ->whereIn('tag_id', array_map(static fn (Tag $tag): int|string => $tag->getKey(), $tags))
+            ->lockForUpdate()
+            ->pluck('tag_id')
+            ->map(static fn (mixed $key): string => is_scalar($key) ? (string) $key : '')
+            ->all();
+
+        return array_values(array_filter($tags, static fn (Tag $tag): bool => in_array((string) $tag->getKey(), $carried, true)));
     }
 
     /**

@@ -275,3 +275,33 @@ test('the_hosts_transaction_survives_a_concurrent_tag_delete', function (): void
         ->and($racer->outcome())->toBe('detached')
         ->and(Tagging::query()->where('tag_id', $x->getKey())->count())->toBe(0);
 })->skip(fn (): bool => ! Racer::available(), 'needs a real engine and pcntl')->group('real-engine');
+
+// A detach decides from the taggings it read before it waited on the tag rows: a delete, restore
+// and re-attach elsewhere landing in that wait must not cost the tag a count it still has.
+test('detach_counts_only_rows_it_deleted', function (): void {
+    $article = Article::query()->create(['title' => 'A']);
+    $other = Article::query()->create(['title' => 'B']);
+    $article->attachTags(['rock']);
+    $rock = Tags::type('tag')->findOrFail('rock');
+    $racer = new Racer;
+
+    DB::transaction(function () use ($article, $other, $rock, $racer): void {
+        Tag::query()->whereKey($rock->getKey())->lockForUpdate()->first();
+
+        // The detach reads the article's taggings ({rock}), then waits on rock's row.
+        $racer->run(static function () use ($article, $rock): string {
+            $changes = Tags::detach(Article::query()->findOrFail($article->getKey()), Tag::query()->findOrFail($rock->getKey()));
+
+            return 'detached '.count($changes->detached);
+        })->waitUntilBlockedOrDone();
+
+        // Meanwhile: deleted everywhere, restored, and put on another article.
+        Tags::type('tag')->delete($rock);
+        Tags::type('tag')->restore(Tag::query()->withTrashed()->findOrFail($rock->getKey()));
+        $other->attachTags([Tag::query()->findOrFail($rock->getKey())]);
+    });
+
+    expect($racer->outcome())->toBe('detached 0')
+        ->and(Tagging::query()->where('tag_id', $rock->getKey())->count())->toBe(1)
+        ->and(Tag::query()->findOrFail($rock->getKey())->usage_count)->toBe(1);
+})->skip(fn (): bool => ! Racer::available(), 'needs a real engine and pcntl')->group('real-engine');

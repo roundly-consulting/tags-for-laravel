@@ -14,6 +14,7 @@ use RoundlyConsulting\Tags\Exceptions\DuplicateTagException;
 use RoundlyConsulting\Tags\Exceptions\InvalidTagTypeException;
 use RoundlyConsulting\Tags\Exceptions\TagNotFoundException;
 use RoundlyConsulting\Tags\Exceptions\TagScopeMismatchException;
+use RoundlyConsulting\Tags\Events\Untagged;
 use RoundlyConsulting\Tags\Exceptions\UnknownTagTypeException;
 use RoundlyConsulting\Tags\Facades\Tags;
 use RoundlyConsulting\Tags\Http\Resources\TagResource;
@@ -310,3 +311,31 @@ test('config_rule_values_are_validated', function (array $rules, ?string $error)
     'a string label' => [['label' => 'Configured genre'], null],
     'a label map with a non-string' => [['label' => ['en' => 5]], 'label must be a string or a locale map'],
 ]);
+
+// O-8 staged: while the detach waits for the tag row, a concurrent delete removes the tagging and
+// a re-attach elsewhere takes the count back to 1. The detach writes, counts and announces nothing.
+test('detach_counts_only_the_taggings_it_removes', function (): void {
+    $article = Article::query()->create(['title' => 'A']);
+    $other = Article::query()->create(['title' => 'B']);
+    $article->attachTags(['rock']);
+    $rock = Tags::type('tag')->findOrFail('rock');
+    $armed = true;
+
+    DB::listen(static function (QueryExecuted $query) use (&$armed, $article, $other, $rock): void {
+        if ($armed && str_contains($query->sql, 'from "tags" where "tags"."id" in') && str_contains($query->sql, 'order by "id" asc')) {
+            $armed = false;
+            Tagging::query()->where('taggable_id', $article->getKey())->delete();
+            Tagging::query()->insert(['tag_id' => $rock->getKey(), 'taggable_type' => $other->getMorphClass(), 'taggable_id' => $other->getKey(), 'type' => 'tag']);
+        }
+    });
+
+    Event::fake([Untagged::class]);
+    $changes = Tags::detach($article, $rock);
+
+    expect($armed)->toBeFalse()
+        ->and($changes->detached)->toBe([])
+        ->and($rock->fresh()?->usage_count)->toBe(1)
+        ->and(Tagging::query()->where('tag_id', $rock->getKey())->count())->toBe(1);
+
+    Event::assertNotDispatched(Untagged::class);
+})->skip(fn (): bool => config('tags.primary_key_type') !== 'bigint' || DB::getDriverName() !== 'sqlite', 'staged on sqlite');
