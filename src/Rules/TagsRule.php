@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Tags\Contracts\Taggable;
 use RoundlyConsulting\Tags\Support\KeyShape;
 use RoundlyConsulting\Tags\Support\Messages;
+use RoundlyConsulting\Tags\Support\RuleFailure;
 use RoundlyConsulting\Tags\Support\ScopeKey;
 use RoundlyConsulting\Tags\Support\Taggings;
 use RoundlyConsulting\Tags\Support\TagLookup;
@@ -33,7 +34,8 @@ use RoundlyConsulting\Translatable\Facades\Translatable;
  * Every entry must be a valid name or slug (a key with `byId()`). For a curated type every entry
  * must name a live tag in the candidate scopes; for a free-form type unknown names pass. Keys of
  * another scope or type fail, and the distinct entries may not exceed the max. A list, or a single
- * value for a single type.
+ * value for a single type. A failure names the first entry that failed; a key of another scope
+ * and a missing key fail alike ("unknown"), so the message reveals nothing about other scopes.
  *
  * Validated keys reach a write as strings, and a string is a name to the tagging verbs: pass
  * `Tags::type($type)->findMany($validated)` to the verb, never the raw array.
@@ -123,8 +125,8 @@ final class TagsRule implements ValidationRule
         $scopeKeys = $this->scopeKeys($type);
         $distinct = $this->byId ? $this->keys($type, $entries, $scopeKeys) : $this->names($type, $entries, $scopeKeys);
 
-        if (is_string($distinct)) {
-            $fail(Messages::get('validation.'.$distinct));
+        if ($distinct instanceof RuleFailure) {
+            $fail(Messages::get('validation.'.$distinct->reason, ['tag' => $distinct->entry]));
 
             return;
         }
@@ -156,13 +158,13 @@ final class TagsRule implements ValidationRule
      * @param  list<mixed>  $entries
      * @param  list<string>  $scopeKeys
      */
-    private function keys(TagType $type, array $entries, array $scopeKeys): int|string
+    private function keys(TagType $type, array $entries, array $scopeKeys): int|RuleFailure
     {
         $keys = [];
 
         foreach ($entries as $entry) {
             if ((! is_int($entry) && ! is_string($entry)) || ! KeyShape::isTagKey($entry)) {
-                return 'invalid';
+                return RuleFailure::invalid($entry);
             }
 
             $keys[(string) $entry] = $entry;
@@ -176,9 +178,17 @@ final class TagsRule implements ValidationRule
             ->where('type', $type->name)
             ->whereIn('scope_key', $scopeKeys)
             ->whereKey(array_values($keys))
-            ->count();
+            ->pluck(TagModel::make()->getKeyName())
+            ->map(static fn (mixed $key): string => is_scalar($key) ? (string) $key : '')
+            ->all();
 
-        return $found === count($keys) ? $found : 'not_found';
+        foreach ($keys as $key => $entry) {
+            if (! in_array((string) $key, $found, true)) {
+                return RuleFailure::unknown($entry);
+            }
+        }
+
+        return count($keys);
     }
 
     /**
@@ -188,7 +198,7 @@ final class TagsRule implements ValidationRule
      * @param  list<mixed>  $entries
      * @param  list<string>  $scopeKeys
      */
-    private function names(TagType $type, array $entries, array $scopeKeys): int|string
+    private function names(TagType $type, array $entries, array $scopeKeys): int|RuleFailure
     {
         $names = [];
 
@@ -196,7 +206,7 @@ final class TagsRule implements ValidationRule
             $name = is_string($entry) ? TagName::normalizeOrNull($entry) : null;
 
             if ($name === null || TagSlugs::slugify($name, Translatable::currentLocale()) === '' || mb_strlen($name) > TagsConfig::nameMaxLength()) {
-                return 'invalid';
+                return RuleFailure::invalid($entry);
             }
 
             $names[] = (string) $entry;
@@ -213,7 +223,7 @@ final class TagsRule implements ValidationRule
             }
 
             if ($type->curated) {
-                return 'not_found';
+                return RuleFailure::unknown($name);
             }
 
             $distinct['new:'.TagSlugs::slugify($name, Translatable::currentLocale())] = true;

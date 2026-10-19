@@ -40,13 +40,13 @@ function tagErrors(array $data, array $rules): array
 
 test('tags_rule_curated', function (): void {
     expect(tagErrors(['category' => 'jazz'], ['category' => [TagsRule::for('genre')]]))->toBe([])
-        ->and(tagErrors(['category' => 'Polka'], ['category' => [TagsRule::for('genre')]])['category'][0])->toBe('The category contains a tag that does not exist.')
+        ->and(tagErrors(['category' => 'Polka'], ['category' => [TagsRule::for('genre')]])['category'][0])->toBe('The category contains the unknown tag [Polka].')
         ->and(Tag::query()->count())->toBe(3);
 });
 
 test('tags_rule_free_form', function (): void {
     expect(tagErrors(['labels' => ['Brand new', 'Other']], ['labels' => ['array', TagsRule::for('label')]]))->toBe([])
-        ->and(tagErrors(['labels' => ['!!!']], ['labels' => [TagsRule::for('label')]])['labels'][0])->toBe('The labels contains an invalid tag.')
+        ->and(tagErrors(['labels' => ['!!!']], ['labels' => [TagsRule::for('label')]])['labels'][0])->toBe('The labels contains an invalid tag [!!!].')
         ->and(tagErrors(['labels' => [['nested']]], ['labels' => [TagsRule::for('label')]]))->toHaveKey('labels')
         ->and(Tag::query()->count())->toBe(3);
 });
@@ -57,7 +57,7 @@ test('tags_rule_ids', function (): void {
     expect(tagErrors(['labels' => [(string) $live->getKey()]], ['labels' => [TagsRule::for('label')->byId()]]))->toBe([])
         ->and(tagErrors(['labels' => [$this->jazz->getKey()]], ['labels' => [TagsRule::for('label')->byId()]]))->toHaveKey('labels')
         ->and(tagErrors(['labels' => ['abc']], ['labels' => [TagsRule::for('label')->byId()]])['labels'][0])->toContain('invalid')
-        ->and(tagErrors(['labels' => [999999]], ['labels' => [TagsRule::for('label')->byId()]])['labels'][0])->toContain('does not exist')
+        ->and(tagErrors(['labels' => [999999]], ['labels' => [TagsRule::for('label')->byId()]])['labels'][0])->toContain('unknown tag [999999]')
         ->and(tagErrors(['labels' => []], ['labels' => ['array', TagsRule::for('label')->byId()]]))->toBe([]);
 })->skip(fn (): bool => config('tags.primary_key_type') !== 'bigint', 'int keys');
 
@@ -120,6 +120,43 @@ test('tags_rule_max', function (): void {
         ->and(tagErrors(['labels' => ['a', 'b']], ['labels' => [TagsRule::for('label')->max(10)]]))->toBe([])
         ->and(tagErrors(['labels' => ['a', 'b', 'c', 'd']], ['labels' => [TagsRule::for('tag')->max(3)]]))->toHaveKey('labels');
 });
+
+test('tags_rule_names_the_unknown_entry', function (): void {
+    expect(tagErrors(['category' => ['jazz', 'Polka', 'Waltz']], ['category' => ['array', TagsRule::for('genre')->max(5)]])['category'][0])
+        ->toBe('The category contains the unknown tag [Polka].');
+
+    app()->setLocale('sk');
+
+    expect(tagErrors(['category' => 'Polka'], ['category' => [TagsRule::for('genre')]])['category'][0])
+        ->toBe('Pole category obsahuje neznámy štítok „Polka“.');
+});
+
+test('tags_rule_names_the_invalid_entry', function (mixed $entries, string $named): void {
+    expect(tagErrors(['labels' => $entries], ['labels' => [TagsRule::for('label')]])['labels'][0])
+        ->toBe("The labels contains an invalid tag [{$named}].");
+})->with([
+    'unsluggable' => [['ok', '!!!', '???'], '!!!'],
+    'too long' => [[str_repeat('a', 65)], str_repeat('a', 64).'...'],
+    'nested' => [[['nested']], '["nested"]'],
+    'blank' => [['  '], '  '],
+]);
+
+test('tags_rule_messages_are_the_same_for_foreign_and_missing_keys', function (): void {
+    $acme = Team::query()->create(['name' => 'Acme']);
+    $globex = Team::query()->create(['name' => 'Globex']);
+    $theirs = Tags::type('label')->within($globex)->make('Theirs')->create();
+    $ours = Tags::type('label')->within($acme)->make('Ours')->create();
+    $rule = fn (): TagsRule => TagsRule::for('label')->byId()->within($acme);
+    $foreignKey = (string) $theirs->getKey();
+
+    $foreign = tagErrors(['labels' => [(string) $ours->getKey(), $foreignKey]], ['labels' => [$rule()]])['labels'][0];
+    $missing = tagErrors(['labels' => [(string) $ours->getKey(), '999999']], ['labels' => [$rule()]])['labels'][0];
+
+    expect($foreign)->toBe("The labels contains the unknown tag [{$foreignKey}].")
+        ->and($missing)->toBe('The labels contains the unknown tag [999999].')
+        ->and(str_replace($foreignKey, '999999', $foreign))->toBe($missing)
+        ->and(tagErrors(['labels' => ['1', 'abc']], ['labels' => [$rule()]])['labels'][0])->toBe('The labels contains an invalid tag [abc].');
+})->skip(fn (): bool => config('tags.primary_key_type') !== 'bigint', 'int keys');
 
 test('tags_rule_scalar_for_single', function (): void {
     expect(tagErrors(['category' => 'jazz'], ['category' => [TagsRule::for('genre')]]))->toBe([])

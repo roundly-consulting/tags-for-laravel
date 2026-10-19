@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 return [
     'list' => 'The :attribute must be a list of tags.',
-    'invalid' => 'The :attribute contains an invalid tag.',
-    'not_found' => 'The :attribute contains a tag that does not exist.',
+    'invalid' => 'The :attribute contains an invalid tag [:tag].',
+    'not_found' => 'The :attribute contains the unknown tag [:tag].',
     'not_allowed' => 'The :attribute cannot be used on this record.',
     'max' => '{1} The :attribute may hold only one tag.|[0,*] The :attribute may hold at most :max tags.',
 
