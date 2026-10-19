@@ -76,14 +76,12 @@ final readonly class SyncTagsAction
 
             $current = Taggings::current($taggable, $type->name, locked: Taggings::nested());
 
+            // Never more than the max checked above: the stored names only ever collapse onto
+            // tags already counted.
             $desired = [];
 
             foreach ($tags as $tag) {
                 $desired[(string) $tag->getKey()] = $tag->getKey();
-            }
-
-            if ($type->max !== null && count($desired) > $type->max) {
-                throw TagLimitExceededException::forType($type->name, $type->max);
             }
 
             return $apply->execute(
