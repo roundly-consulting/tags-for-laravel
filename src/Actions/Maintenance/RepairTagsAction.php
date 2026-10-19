@@ -80,6 +80,10 @@ final readonly class RepairTagsAction
             ->where('type', $type)
             ->where('scope_key', $scopeKey)
             ->orderBy(TagModel::make()->getKeyName());
+        if (! $dryRun) {
+            TreeLock::rows([], $query);
+        }
+
         $tags = ($dryRun ? $query : TreeLock::read($query))->get(['id', 'type', 'scope_key', 'parent_id', 'path', 'depth']);
         $byKey = $tags->keyBy(static fn (Tag $tag): string => (string) $tag->getKey());
         $fixed = 0;

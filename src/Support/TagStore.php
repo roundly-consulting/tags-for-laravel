@@ -39,7 +39,7 @@ final class TagStore
     public static function store(TagDraft $draft, ?string $lookup = null): StoredTag
     {
         if ($draft->type->hierarchical) {
-            TreeLock::lock($draft->type->name, $draft->scopeKey);
+            self::lockTree($draft);
         }
 
         $slugs = self::slugs($draft);
@@ -109,6 +109,34 @@ final class TagStore
         }
 
         return new StoredTag($tag, created: true);
+    }
+
+    /**
+     * Take the tree lock a draft is stored under, then lock — in one ascending sweep — the rows the
+     * store may change: the draft's parent, the siblings an explicit position shifts, and a deleted
+     * tag the name would bring back with its parent and subtree.
+     */
+    public static function lockTree(TagDraft $draft): void
+    {
+        TreeLock::lock($draft->type->name, $draft->scopeKey);
+
+        $holder = TagLookup::holders($draft->type, $draft->scopeKey, self::slugs($draft))
+            ->first(static fn (Tag $tag): bool => $tag->trashed());
+        $keys = [$draft->parent?->getKey()];
+        $sets = [];
+
+        if ($holder !== null) {
+            $keys = [...$keys, $holder->getKey(), $holder->parent_id];
+            $sets[] = TagModel::query()->withTrashed()->descendantsOf($holder);
+        }
+
+        if ($draft->position !== null) {
+            $under = $holder === null || $draft->placed ? $draft->parent?->getKey() : $holder->parent_id;
+            $siblings = TagModel::query()->where('type', $draft->type->name)->where('scope_key', $draft->scopeKey)->where('position', '>=', $draft->position);
+            $sets[] = $under === null ? $siblings->whereNull('parent_id') : $siblings->where('parent_id', $under);
+        }
+
+        TreeLock::rows($keys, ...$sets);
     }
 
     /**

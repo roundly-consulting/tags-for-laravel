@@ -167,21 +167,29 @@ final class Taggings
     }
 
     /**
-     * Lock tag rows `FOR UPDATE`, in key order.
+     * Lock tag rows `FOR UPDATE`, in one ascending sweep of their keys — the order every write
+     * locks tag rows in.
      *
      * @param  list<int|string>  $keys
      * @return list<string> the keys locked
      */
     public static function lockTags(array $keys): array
     {
-        $keys = array_values(array_unique(array_map(strval(...), $keys)));
+        $unique = [];
 
-        if ($keys !== []) {
-            $tags = TagModel::make();
-            TagModel::query()->withTrashed()->whereKey($keys)->orderBy($tags->getKeyName())->lockForUpdate()->get([$tags->getKeyName()]);
+        foreach ($keys as $key) {
+            $unique[(string) $key] = $key;
         }
 
-        return $keys;
+        $sorted = array_values($unique);
+        sort($sorted);
+        $tags = TagModel::make();
+
+        foreach (array_chunk($sorted, 1000) as $chunk) {
+            TagModel::query()->withTrashed()->whereKey($chunk)->orderBy($tags->getKeyName())->lockForUpdate()->get([$tags->getKeyName()]);
+        }
+
+        return array_map(strval(...), $sorted);
     }
 
     /**

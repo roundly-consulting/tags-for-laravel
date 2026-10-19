@@ -40,6 +40,7 @@ final readonly class ReorderTagsAction
 
         return TagTransaction::run(static function () use ($type, $scopeKey, $parent, $order): Collection {
             TreeLock::lock($type->name, $scopeKey);
+            TreeLock::rows([$parent?->getKey()], TagStore::siblings($type->name, $scopeKey, $parent));
 
             if ($parent !== null) {
                 $parent = TreeLock::read(TagModel::query()->whereKey($parent->getKey())->where('type', $type->name)->where('scope_key', $scopeKey))->first()

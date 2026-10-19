@@ -39,6 +39,13 @@ final readonly class DeleteTagAction
         return TagTransaction::run(static function () use ($tag, $type, $children, $rewrite): Tag {
             if ($type->hierarchical) {
                 TreeLock::lock($tag->type, $tag->scope_key);
+
+                // The tag, its parent and its whole subtree, in key order, before any locking read.
+                $known = TagModel::query()->withTrashed()->whereKey($tag->getKey())->first();
+                TreeLock::rows(
+                    [$tag->getKey(), $known?->parent_id],
+                    ...($known === null ? [] : [TagModel::query()->withTrashed()->descendantsOf($known)]),
+                );
             }
 
             $fresh = TreeLock::read(TagModel::query()->withTrashed()->whereKey($tag->getKey()))->first()

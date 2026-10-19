@@ -93,7 +93,7 @@ final class TagDrafts
             return $draft;
         }
 
-        TreeLock::lock($draft->type->name, $draft->scopeKey);
+        TagStore::lockTree($draft);
 
         if ($draft->parent === null) {
             return $draft;

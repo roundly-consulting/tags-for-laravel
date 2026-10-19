@@ -2,12 +2,15 @@
 
 declare(strict_types=1);
 
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use RoundlyConsulting\Tags\Enums\TagChildren;
 use RoundlyConsulting\Tags\Exceptions\InvalidTagHierarchyException;
 use RoundlyConsulting\Tags\Exceptions\TagHasChildrenException;
 use RoundlyConsulting\Tags\Facades\Tags;
 use RoundlyConsulting\Tags\Models\Tag;
+use RoundlyConsulting\Tags\Tests\Fixtures\Models\Article;
 use RoundlyConsulting\Tags\Tests\Support\Racer;
 
 test('concurrent_moves_cannot_form_a_cycle', function (): void {
@@ -180,4 +183,114 @@ test('a_reorder_and_a_reparent_in_a_host_transaction_see_the_current_tree', func
         ->and(Tag::query()->where('slug->en', 'pop')->firstOrFail()->path)->toBe('/'.$rock->getKey().'/')
         ->and($jazz->fresh()?->path)->toBe('/'.$rock->getKey().'/')
         ->and($jazz->fresh()?->depth)->toBe(2);
+})->skip(fn (): bool => ! Racer::available(), 'needs a real engine and pcntl')->group('real-engine');
+
+// FR-1: a tree write locks the tag rows it decides on and changes in one ascending sweep, right
+// after the tree lock — the order every tagging write locks tag rows in — so the two never wait on
+// each other in a cycle. Staged: a key-order locker holds A and then asks for B, while a
+// host-transaction move of B under A runs in between.
+test('a_nested_move_and_a_tagging_write_never_deadlock', function (): void {
+    Tags::define('genre')->hierarchical();
+    $a = Tags::type('genre')->make('A')->create();   // the lower key
+    $b = Tags::type('genre')->make('B')->create();
+    $racer = new Racer;
+    $parent = 'done';
+
+    try {
+        DB::transaction(function () use ($a, $b, $racer): void {
+            Tag::query()->whereKey($a->getKey())->lockForUpdate()->first();   // a tagging write's first row
+
+            $racer->run(static fn (): string => DB::connection('racer')->transaction(static function () use ($a, $b): string {
+                Tag::on('racer')->count();   // the host's snapshot (MySQL)
+                Tags::type('genre')->move(Tag::on('racer')->findOrFail($b->getKey()), Tag::on('racer')->findOrFail($a->getKey()));
+
+                return 'moved';
+            }))->waitUntilBlockedOrDone();
+
+            Tag::query()->whereKey($b->getKey())->lockForUpdate()->first();   // … then its second
+        });
+    } catch (QueryException $exception) {
+        $parent = 'error: '.$exception->getMessage();
+    }
+
+    expect($parent)->toBe('done')
+        ->and($racer->outcome())->toBe('moved')
+        ->and($b->fresh()?->parent_id)->toBe($a->getKey());
+})->skip(fn (): bool => ! Racer::available(), 'needs a real engine and pcntl')->group('real-engine');
+
+// The same with package code on both sides: a host-transaction move and a host-transaction attach
+// of both tags.
+test('a_nested_move_and_a_real_attach_never_deadlock', function (): void {
+    Tags::define('genre')->hierarchical();
+    $a = Tags::type('genre')->make('A')->create();
+    $b = Tags::type('genre')->make('B')->create();
+    $article = Article::query()->create();
+    $racer = new Racer;
+    $started = false;
+
+    // Once the move holds B, an attach of [A, B] starts elsewhere.
+    DB::listen(static function (QueryExecuted $query) use (&$started, $racer, $a, $b, $article): void {
+        $sql = strtolower($query->sql);
+
+        if ($started || ! str_contains($sql, 'for update') || ! str_contains($sql, 'tags') || str_contains($sql, 'tag_locks') || ! in_array($b->getKey(), $query->bindings, false) && ! str_contains($sql, (string) $b->getKey())) {
+            return;
+        }
+
+        $started = true;
+
+        // In a transaction too, so neither side is retried: the absence of the cycle is the proof.
+        $racer->run(static fn (): string => DB::connection('racer')->transaction(static function () use ($a, $b, $article): string {
+            Article::on('racer')->findOrFail($article->getKey())->attachTags([Tag::on('racer')->findOrFail($a->getKey()), Tag::on('racer')->findOrFail($b->getKey())], 'genre');
+
+            return 'attached';
+        }))->waitUntilBlockedOrDone();
+    });
+
+    $parent = 'moved';
+
+    try {
+        DB::transaction(static function () use ($a, $b): void {
+            Tag::query()->count();
+            Tags::type('genre')->move(Tag::query()->findOrFail($b->getKey()), Tag::query()->findOrFail($a->getKey()));
+        });
+    } catch (QueryException $exception) {
+        $parent = 'error: '.$exception->getMessage();
+    }
+
+    expect($started)->toBeTrue()
+        ->and($parent)->toBe('moved')
+        ->and($racer->outcome())->toBe('attached');
+})->skip(fn (): bool => ! Racer::available(), 'needs a real engine and pcntl')->group('real-engine');
+
+// The other side: a move in a transaction of its own rewrites a descendant with a lower key than
+// the moved tag; a host-transaction tagging write holding that descendant and asking for the
+// moved tag must not deadlock with it either.
+test('a_move_and_a_nested_tagging_write_never_deadlock', function (): void {
+    Tags::define('genre')->hierarchical();
+    $low = Tags::type('genre')->make('Low')->create();   // the lower key …
+    $top = Tags::type('genre')->make('Top')->create();
+    $low = Tags::type('genre')->move($low, $top);          // … below the higher one
+    $root = Tags::type('genre')->make('Root')->create();
+    $racer = new Racer;
+    $parent = 'done';
+
+    try {
+        DB::transaction(function () use ($low, $top, $root, $racer): void {
+            Tag::query()->whereKey($low->getKey())->lockForUpdate()->first();
+
+            $racer->run(static function () use ($top, $root): string {
+                Tags::type('genre')->move(Tag::on('racer')->findOrFail($top->getKey()), Tag::on('racer')->findOrFail($root->getKey()));
+
+                return 'moved';
+            })->waitUntilBlockedOrDone();
+
+            Tag::query()->whereKey($top->getKey())->lockForUpdate()->first();
+        });
+    } catch (QueryException $exception) {
+        $parent = 'error: '.$exception->getMessage();
+    }
+
+    expect($parent)->toBe('done')
+        ->and($racer->outcome())->toBe('moved')
+        ->and($low->fresh()?->path)->toBe('/'.$root->getKey().'/'.$top->getKey().'/');
 })->skip(fn (): bool => ! Racer::available(), 'needs a real engine and pcntl')->group('real-engine');

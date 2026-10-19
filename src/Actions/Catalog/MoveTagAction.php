@@ -44,6 +44,15 @@ final readonly class MoveTagAction
         return TagTransaction::run(static function () use ($tag, $under, $position, $type, $rewrite): Tag {
             TreeLock::lock($tag->type, $tag->scope_key);
 
+            // The tag, both parents, its subtree (deleted rows move too) and the siblings a position
+            // shifts: locked in key order before anything is read with a lock.
+            $known = TagModel::query()->withTrashed()->whereKey($tag->getKey())->first();
+            TreeLock::rows(
+                [$tag->getKey(), $under?->getKey(), $known?->parent_id],
+                ...($known === null ? [] : [TagModel::query()->withTrashed()->descendantsOf($known)]),
+                ...($position === null ? [] : [TagStore::siblings($tag->type, $tag->scope_key, $under, $tag)->where('position', '>=', $position)]),
+            );
+
             $fresh = TreeLock::read(TagModel::query()->whereKey($tag->getKey()))->first() ?? throw TagNotFoundException::trashed();
             $parent = null;
 
