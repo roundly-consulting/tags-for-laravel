@@ -99,7 +99,7 @@ final class TagDrafts
             return $draft;
         }
 
-        $parent = TagModel::query()->withTrashed()->whereKey($draft->parent->getKey())->first();
+        $parent = TreeLock::read(TagModel::query()->withTrashed()->whereKey($draft->parent->getKey()))->first();
 
         if ($parent === null || $parent->trashed()) {
             throw InvalidTagHierarchyException::parentTrashed();

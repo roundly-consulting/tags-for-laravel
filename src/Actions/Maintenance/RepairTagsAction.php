@@ -76,11 +76,11 @@ final readonly class RepairTagsAction
      */
     private function tree(string $type, string $scopeKey, bool $dryRun): array
     {
-        $tags = TagModel::query()->withTrashed()
+        $query = TagModel::query()->withTrashed()
             ->where('type', $type)
             ->where('scope_key', $scopeKey)
-            ->orderBy(TagModel::make()->getKeyName())
-            ->get(['id', 'type', 'scope_key', 'parent_id', 'path', 'depth']);
+            ->orderBy(TagModel::make()->getKeyName());
+        $tags = ($dryRun ? $query : TreeLock::read($query))->get(['id', 'type', 'scope_key', 'parent_id', 'path', 'depth']);
         $byKey = $tags->keyBy(static fn (Tag $tag): string => (string) $tag->getKey());
         $fixed = 0;
         $cycles = 0;

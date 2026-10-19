@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use RoundlyConsulting\Tags\Facades\Tags;
 use RoundlyConsulting\Tags\Tests\Fixtures\Models\Article;
 use RoundlyConsulting\Tags\Tests\Support\RecordsLocks;
@@ -94,4 +96,31 @@ test('tree_writes_take_the_tree_lock', function (Closure $write): void {
         RecordsLocks::start();
         Tags::type('genre')->restore($jazz);
     }],
+])->skip(fn (): bool => ! RecordsLocks::available(), 'lock recording is a sqlite grammar');
+
+// In a transaction of its own a tree write's first statement is the tree lock, so its plain reads
+// see the previous writer; a host transaction may hold an older snapshot (MySQL), so there the tree
+// rows are read with locking reads.
+test('tree_writes_in_a_host_transaction_read_the_tree_with_locking_reads', function (Closure $write, int $reads): void {
+    $music = Tags::type('genre')->make('Music')->create();
+    $jazz = Tags::type('genre')->make('Jazz')->under($music)->create();
+    $rock = Tags::type('genre')->make('Rock')->create();
+    $tagRowLocks = static fn (): int => count(array_filter(RecordsLocks::tables(), static fn (string $table): bool => $table === 'tags'));
+
+    RecordsLocks::start();
+    $write($music, $jazz, $rock);
+    $own = $tagRowLocks();
+
+    RecordsLocks::start();
+    DB::transaction(static fn () => $write($music->fresh(), $jazz->fresh(), $rock->fresh()));
+
+    expect($tagRowLocks() - $own)->toBeGreaterThanOrEqual($reads)
+        ->and(RecordsLocks::tables()[0] ?? null)->toBe('tag_locks');
+})->with([
+    // the parent, the last sibling position
+    'create under a parent' => [fn ($music, $jazz, $rock) => Tags::type('genre')->make('Bebop '.Str::random(4))->under($music)->create(), 2],
+    // the tag, its new parent, its deepest descendant, its old parent, the last sibling, the subtree
+    'move' => [fn ($music, $jazz, $rock) => Tags::type('genre')->move($jazz, $jazz->parent_id === $rock->getKey() ? $music : $rock), 5],
+    // the siblings
+    'reorder' => [fn ($music, $jazz, $rock) => Tags::type('genre')->reorder(null, [$rock, $music]), 1],
 ])->skip(fn (): bool => ! RecordsLocks::available(), 'lock recording is a sqlite grammar');

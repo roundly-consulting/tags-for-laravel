@@ -41,14 +41,14 @@ final readonly class DeleteTagAction
                 TreeLock::lock($tag->type, $tag->scope_key);
             }
 
-            $fresh = TagModel::query()->withTrashed()->whereKey($tag->getKey())->first()
+            $fresh = TreeLock::read(TagModel::query()->withTrashed()->whereKey($tag->getKey()))->first()
                 ?? throw TagNotFoundException::generic();
 
             if ($fresh->trashed()) {
                 return $fresh;
             }
 
-            $kids = TagModel::query()->where('parent_id', $fresh->getKey())->ordered()->get();
+            $kids = TreeLock::read(TagModel::query()->where('parent_id', $fresh->getKey())->ordered())->get();
             $subtree = [];
 
             if ($kids->isNotEmpty() && $children === TagChildren::Refuse) {
@@ -56,14 +56,14 @@ final readonly class DeleteTagAction
             }
 
             if ($children === TagChildren::Delete) {
-                $subtree = TagModel::query()->descendantsOf($fresh)->get()->all();
+                $subtree = TreeLock::read(TagModel::query()->descendantsOf($fresh))->get()->all();
             }
 
             $ids = [$fresh->getKey(), ...array_map(static fn (Tag $descendant): int|string => $descendant->getKey(), $subtree)];
             $locked = TagModel::query()->whereKey([...$ids, ...$kids->modelKeys()])->orderBy($fresh->getKeyName())->lockForUpdate()->get();
 
             if ($children === TagChildren::Reparent) {
-                $parent = $fresh->parent_id === null ? null : TagModel::query()->whereKey($fresh->parent_id)->first();
+                $parent = $fresh->parent_id === null ? null : TreeLock::read(TagModel::query()->whereKey($fresh->parent_id))->first();
 
                 foreach ($kids as $kid) {
                     $oldPrefix = TagPath::subtreePrefix($kid);

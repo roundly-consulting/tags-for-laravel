@@ -42,11 +42,11 @@ final readonly class ReorderTagsAction
             TreeLock::lock($type->name, $scopeKey);
 
             if ($parent !== null) {
-                $parent = TagModel::query()->whereKey($parent->getKey())->where('type', $type->name)->where('scope_key', $scopeKey)->first()
+                $parent = TreeLock::read(TagModel::query()->whereKey($parent->getKey())->where('type', $type->name)->where('scope_key', $scopeKey))->first()
                     ?? throw TagNotFoundException::generic();
             }
 
-            $siblings = TagStore::siblings($type->name, $scopeKey, $parent)->ordered()->get()
+            $siblings = TreeLock::read(TagStore::siblings($type->name, $scopeKey, $parent)->ordered())->get()
                 ->keyBy(static fn (Tag $tag): string => (string) $tag->getKey());
 
             $listed = [];

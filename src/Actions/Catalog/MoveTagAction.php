@@ -44,11 +44,11 @@ final readonly class MoveTagAction
         return TagTransaction::run(static function () use ($tag, $under, $position, $type, $rewrite): Tag {
             TreeLock::lock($tag->type, $tag->scope_key);
 
-            $fresh = TagModel::query()->whereKey($tag->getKey())->first() ?? throw TagNotFoundException::trashed();
+            $fresh = TreeLock::read(TagModel::query()->whereKey($tag->getKey()))->first() ?? throw TagNotFoundException::trashed();
             $parent = null;
 
             if ($under !== null) {
-                $parent = TagModel::query()->whereKey($under->getKey())->first() ?? throw InvalidTagHierarchyException::parentTrashed();
+                $parent = TreeLock::read(TagModel::query()->whereKey($under->getKey()))->first() ?? throw InvalidTagHierarchyException::parentTrashed();
 
                 if (TagPath::isWithin($parent, $fresh)) {
                     throw InvalidTagHierarchyException::cycle();
@@ -56,15 +56,17 @@ final readonly class MoveTagAction
             }
 
             if ($type->maxDepth !== null) {
-                $deepest = $fresh->descendants()->max('depth');
-                $height = is_numeric($deepest) ? (int) $deepest - $fresh->depth : 0;
+                // The live subtree: a deleted descendant moves along, and is refused at its restore
+                // if that would put it deeper than the cap.
+                $deepest = TreeLock::max($fresh->descendants(), 'depth');
+                $height = $deepest === null ? 0 : $deepest - $fresh->depth;
 
                 if (TagPath::depthUnder($parent) + $height > $type->maxDepth) {
                     throw InvalidTagHierarchyException::tooDeep($type->maxDepth);
                 }
             }
 
-            $from = $fresh->parent_id === null ? null : TagModel::query()->whereKey($fresh->parent_id)->first();
+            $from = $fresh->parent_id === null ? null : TreeLock::read(TagModel::query()->whereKey($fresh->parent_id))->first();
             $oldPrefix = TagPath::subtreePrefix($fresh);
             $oldDepth = $fresh->depth;
 

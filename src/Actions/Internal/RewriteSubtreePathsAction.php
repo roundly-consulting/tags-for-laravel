@@ -8,6 +8,7 @@ use RoundlyConsulting\Tags\Models\Tag;
 use RoundlyConsulting\Tags\Support\LikeClause;
 use RoundlyConsulting\Tags\Support\TagModel;
 use RoundlyConsulting\Tags\Support\TagPath;
+use RoundlyConsulting\Tags\Support\TreeLock;
 
 /**
  * After a tag moved: rewrite every descendant's path prefix and depth, in key-ordered batches,
@@ -31,7 +32,7 @@ final readonly class RewriteSubtreePathsAction
         }
 
         $rewritten = 0;
-        $query = TagModel::query()->withTrashed()->where('type', $tag->type)->where('scope_key', $tag->scope_key);
+        $query = TreeLock::read(TagModel::query()->withTrashed()->where('type', $tag->type)->where('scope_key', $tag->scope_key));
         LikeClause::startsWith($query, 'path', $oldPrefix);
 
         $query->chunkById(200, static function ($descendants) use ($oldPrefix, $newPrefix, $depthDelta, &$rewritten): void {
