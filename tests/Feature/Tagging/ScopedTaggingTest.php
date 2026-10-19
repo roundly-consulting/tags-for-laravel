@@ -2,7 +2,9 @@
 
 declare(strict_types=1);
 
+use RoundlyConsulting\Tags\Exceptions\TagNotFoundException;
 use RoundlyConsulting\Tags\Exceptions\TagScopeMismatchException;
+use RoundlyConsulting\Tags\Exceptions\TagsException;
 use RoundlyConsulting\Tags\Facades\Tags;
 use RoundlyConsulting\Tags\Models\Tag;
 use RoundlyConsulting\Tags\Models\Tagging;
@@ -62,6 +64,70 @@ test('cross_scope_tags_are_refused', function (): void {
         ->and(Tags::attach($this->ticket, 'fax')->attached[0]->scope_key)->toBe(ScopeKey::for($this->acme))
         ->and(Tagging::query()->count())->toBe(1);
 });
+
+test('key_inputs_never_reveal_another_scope', function (string $case): void {
+    Tags::define('label');
+    Tags::define('genre');
+    Tags::define('article:only')->on(Article::class);
+    $theirs = fn (string $type, string $name): Tag => Tags::type($type)->within($this->globex)->make($name)->create();
+
+    [$key, $type, $precise] = match ($case) {
+        'foreign live, same type' => [$theirs('label', 'Fax')->getKey(), 'label', 'scope'],
+        'foreign live, other type' => [$theirs('genre', 'Jazz')->getKey(), 'label', 'scope'],
+        'foreign deleted' => (function () use ($theirs): array {
+            $old = $theirs('label', 'Old');
+            Tags::type('label')->within($this->globex)->delete($old);
+
+            return [$old->getKey(), 'label', 'scope'];
+        })(),
+        'foreign on a type the model may not carry' => [$theirs('article:only', 'Only')->getKey(), null, 'scope'],
+        'missing key' => [999999, 'label', '999999'],
+    };
+
+    $caught = null;
+
+    try {
+        $this->ticket->attachTags($key, $type);
+    } catch (TagsException $exception) {
+        $caught = $exception;
+    }
+
+    expect($caught)->not->toBeNull()
+        ->and($caught?->errorCode())->toBe('tag_not_found')
+        ->and($caught?->clientMessage())->toBe(TagNotFoundException::generic()->getMessage())
+        ->and($caught?->getMessage())->toContain($precise)
+        ->and(Tagging::query()->count())->toBe(0);
+})->with([
+    'foreign live, same type',
+    'foreign live, other type',
+    'foreign deleted',
+    'foreign on a type the model may not carry',
+    'missing key',
+])->skip(fn (): bool => config('tags.primary_key_type') !== 'bigint', 'int keys');
+
+test('detach_skips_a_key_of_another_scope', function (): void {
+    Tags::define('label');
+    Tags::define('genre');
+    $label = Tags::type('label')->within($this->globex)->make('Fax')->create();
+    $genre = Tags::type('genre')->within($this->globex)->make('Jazz')->create();
+    $this->ticket->attachTags('printer', 'label');
+
+    $changes = Tags::detach($this->ticket, [$label->getKey(), $genre->getKey()], 'label');
+    $models = Tags::detach($this->ticket, [$label, $genre]);
+
+    expect($changes->isEmpty())->toBeTrue()
+        ->and($models->isEmpty())->toBeTrue()
+        ->and(Tagging::query()->count())->toBe(1);
+})->skip(fn (): bool => config('tags.primary_key_type') !== 'bigint', 'int keys');
+
+test('an_own_deleted_key_still_says_it_is_deleted', function (): void {
+    Tags::define('label');
+    $mine = Tags::type('label')->within($this->acme)->make('Old')->create();
+    Tags::type('label')->within($this->acme)->delete($mine);
+
+    expect(fn () => $this->ticket->attachTags($mine->getKey(), 'label'))
+        ->toThrow(TagNotFoundException::class, TagNotFoundException::trashed()->getMessage());
+})->skip(fn (): bool => config('tags.primary_key_type') !== 'bigint', 'int keys');
 
 test('global_only_types_ignore_the_model_scope_when_tagging', function (): void {
     Tags::define('country')->globalOnly();

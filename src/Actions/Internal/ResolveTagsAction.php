@@ -15,6 +15,7 @@ use RoundlyConsulting\Tags\Exceptions\TagTypeNotAllowedException;
 use RoundlyConsulting\Tags\Exceptions\UnknownTagTypeException;
 use RoundlyConsulting\Tags\Models\Tag;
 use RoundlyConsulting\Tags\Support\KeyShape;
+use RoundlyConsulting\Tags\Support\ScopeKey;
 use RoundlyConsulting\Tags\Support\Taggings;
 use RoundlyConsulting\Tags\Support\TagLookup;
 use RoundlyConsulting\Tags\Support\TagModel;
@@ -26,9 +27,11 @@ use RoundlyConsulting\Translatable\Facades\Translatable;
 
 /**
  * Resolve a tagging call's input for one model, in a fixed order so the same call always fails
- * the same way: the input's types (a mismatch or an unknown type), the types the model may carry,
- * the scopes, then the strings — a missing name of a curated type is not found, a missing name of
- * a free-form type is collected for creation. Nothing is written.
+ * the same way. For tag and key inputs, visibility in the model's scopes comes first: a tag of
+ * another scope answers exactly like a missing key, so no later check (deleted, type, allowed
+ * types) confirms that it exists somewhere else. Then the input's types (a mismatch or an unknown
+ * type), the types the model may carry, then the strings — a missing name of a curated type is not
+ * found, a missing name of a free-form type is collected for creation. Nothing is written.
  *
  * Strict (attach, sync) refuses what a write cannot use; lenient (detach) skips it.
  *
@@ -69,6 +72,14 @@ final readonly class ResolveTagsAction
         }
 
         foreach ($models as $tag) {
+            if (! in_array($tag->scope_key, $this->visibleScopeKeys($taggable, $tag), true)) {
+                if ($strict) {
+                    throw TagScopeMismatchException::forTag((string) $tag->slug);
+                }
+
+                continue;
+            }
+
             if ($tag->trashed()) {
                 if ($strict) {
                     throw TagNotFoundException::trashed();
@@ -101,17 +112,6 @@ final readonly class ResolveTagsAction
             }
         }
 
-        // Scopes: a tag of another tenant never reaches this model.
-        foreach ($tags as $name => $byKey) {
-            $candidates = Taggings::candidateScopeKeys($taggable, $types[$name]);
-
-            foreach ($byKey as $tag) {
-                if (! in_array($tag->scope_key, $candidates, true)) {
-                    throw TagScopeMismatchException::forTag((string) $tag->slug);
-                }
-            }
-        }
-
         $missing = [];
 
         if ($stringType !== null) {
@@ -127,6 +127,25 @@ final readonly class ResolveTagsAction
             tags: array_map(static fn (array $byKey): array => array_values($byKey), $tags),
             missing: $stringType !== null && $missing !== [] ? [$stringType->name => $missing] : [],
         );
+    }
+
+    /**
+     * The scope keys a tag input may come from for this model: its type's candidates. A type that
+     * no longer resolves counts as not global-only, so the model's scope and global.
+     *
+     * @return list<string>
+     */
+    private function visibleScopeKeys(Model&Taggable $taggable, Tag $tag): array
+    {
+        $type = $this->registry->find($tag->type);
+
+        if ($type !== null) {
+            return Taggings::candidateScopeKeys($taggable, $type);
+        }
+
+        $scope = $taggable->tagScope();
+
+        return $scope === null ? [ScopeKey::GLOBAL] : [ScopeKey::for($scope), ScopeKey::GLOBAL];
     }
 
     /**

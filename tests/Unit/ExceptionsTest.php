@@ -129,6 +129,18 @@ test('scope_mismatch_presents_as_tag_not_found', function (): void {
         ->and($mismatch->getMessage())->toContain('fax')->not->toBe($missing->getMessage());
 });
 
+test('a_missing_key_presents_like_a_hidden_one', function (): void {
+    $missing = TagNotFoundException::forKey(9);
+    $hidden = TagScopeMismatchException::forTag('x');
+
+    expect($missing->errorCode())->toBe($hidden->errorCode())
+        ->and($missing->clientMessage())->toBe($hidden->clientMessage())
+        ->and($missing->getMessage())->toContain('9')->not->toBe($hidden->getMessage())
+        // Names and deleted tags are only ever the caller's own: they stay precise.
+        ->and(TagNotFoundException::forName('Polka', 'genre')->clientMessage())->toContain('Polka')
+        ->and(TagNotFoundException::trashed()->clientMessage())->toBe(TagNotFoundException::trashed()->getMessage());
+});
+
 test('the_api_maps_exceptions_only_through_the_base_methods', function (): void {
     $exception = new class('internal detail') extends TagsException
     {
