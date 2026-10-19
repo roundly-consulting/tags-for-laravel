@@ -3,11 +3,14 @@
 declare(strict_types=1);
 
 use PHPUnit\Framework\ExpectationFailedException;
+use RoundlyConsulting\Tags\Enums\TagOperation;
 use RoundlyConsulting\Tags\Facades\Tags;
+use RoundlyConsulting\Tags\Handles\TypeTags;
 use RoundlyConsulting\Tags\Models\Tag;
 use RoundlyConsulting\Tags\TagsManager;
 use RoundlyConsulting\Tags\Testing\TagsFake;
 use RoundlyConsulting\Tags\Tests\Fixtures\Models\Article;
+use RoundlyConsulting\Tags\Tests\Fixtures\Models\EventTagType;
 use RoundlyConsulting\Tags\Tests\Fixtures\Models\Note;
 
 beforeEach(function (): void {
@@ -129,5 +132,56 @@ test('fake_naming_rule_is_pinned', function (): void {
         }
     }
 
-    expect($pairs)->toBe(10);
+    expect($pairs)->toBe(11);
+});
+
+test('assert_tags_reordered_accepts_an_enum', function (): void {
+    Tags::define(EventTagType::Category)->hierarchical();
+    $fake = Tags::fake();
+    $jazz = Tags::type(EventTagType::Category)->make('Jazz')->create();
+
+    Tags::type(EventTagType::Category)->reorder(null, [$jazz]);
+
+    $fake->assertTagsReordered(EventTagType::Category);
+    $fake->assertTagsReordered('events:category');
+    $fake->assertTagsReordered();
+
+    expect(fn () => $fake->assertTagsReordered(EventTagType::Label))
+        ->toThrow(ExpectationFailedException::class, 'Expected tags of type [events:label] to be reordered, but none were.');
+});
+
+test('fake_covers_every_operation', function (): void {
+    Tags::define('genre')->hierarchical();
+    // A handle holds the manager it came from: take a new one after each fake.
+    $genres = static fn (): TypeTags => Tags::type('genre');
+
+    /** @var array<string, array{0: Closure(): mixed, 1: Closure(TagsFake): void}> $observers */
+    $observers = [
+        'attach' => [fn () => $this->article->attachTags('live', 'label'), fn (TagsFake $fake) => $fake->assertTagged($this->article)],
+        'detach' => [fn () => $this->article->detachTags('live', 'label'), fn (TagsFake $fake) => $fake->assertUntagged($this->article)],
+        'sync' => [fn () => $this->article->syncTags(['free'], 'label'), fn (TagsFake $fake) => $fake->assertSynced($this->article, 'label')],
+        'clear' => [fn () => $this->article->clearTags(), fn (TagsFake $fake) => $fake->assertCleared($this->article)],
+        'create_tag' => [fn () => $genres()->make('Jaz')->create(), fn (TagsFake $fake) => $fake->assertTagCreated()],
+        'find_or_create_tag' => [fn () => $genres()->findOrCreate('Rock'), fn (TagsFake $fake) => $fake->assertTagCreated()],
+        'update_tag' => [fn () => $genres()->rename($genres()->findOrFail('jaz'), 'Jazz'), fn (TagsFake $fake) => $fake->assertTagUpdated()],
+        'move_tag' => [fn () => $genres()->move($genres()->findOrFail('rock'), $genres()->findOrFail('jazz')), fn (TagsFake $fake) => $fake->assertTagMoved()],
+        'reorder_tags' => [fn () => $genres()->reorder(null, [$genres()->findOrFail('jazz')]), fn (TagsFake $fake) => $fake->assertTagsReordered('genre')],
+        'delete_tag' => [fn () => $genres()->delete($genres()->findOrFail('rock')), fn (TagsFake $fake) => $fake->assertTagDeleted()],
+        'restore_tag' => [fn () => $genres()->restore($genres()->findTrashed('rock') ?? throw new RuntimeException('rock is not deleted')), fn (TagsFake $fake) => $fake->assertTagRestored()],
+        'repair' => [fn () => Tags::repair(), fn (TagsFake $fake) => $fake->assertRepaired()],
+    ];
+
+    // A new operation without an assertion that observes it fails here.
+    expect(array_keys($observers))->toBe(array_map(static fn (TagOperation $operation): string => $operation->value, TagOperation::cases()));
+
+    foreach ($observers as $operation => [$perform, $assert]) {
+        $fake = Tags::fake();
+
+        expect(fn () => $assert($fake))->toThrow(ExpectationFailedException::class);
+
+        $perform();
+        $assert($fake);
+
+        expect($fake->recorded(TagOperation::from($operation)))->not->toBe([], $operation);
+    }
 });

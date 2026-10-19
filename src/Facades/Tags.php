@@ -40,8 +40,10 @@ use RoundlyConsulting\Tags\Testing\TagsFake;
  * @method static void assertNoTagDeleted()
  * @method static void assertTagRestored(\Closure|null $callback = null)
  * @method static void assertNoTagRestored()
- * @method static void assertTagsReordered(string|null $type = null)
+ * @method static void assertTagsReordered(\BackedEnum|string|null $type = null)
  * @method static void assertNoTagsReordered()
+ * @method static void assertRepaired(\Closure|null $callback = null)
+ * @method static void assertNothingRepaired()
  *
  * @see TagsManager
  */

@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use PHPUnit\Framework\ExpectationFailedException;
 use RoundlyConsulting\Sluggable\Support\IndexNames;
 use RoundlyConsulting\Tags\DataTransferObjects\RepairOptions;
+use RoundlyConsulting\Tags\DataTransferObjects\RepairReport;
 use RoundlyConsulting\Tags\Enums\TagOperation;
 use RoundlyConsulting\Tags\Facades\Tags;
 use RoundlyConsulting\Tags\Models\Tag;
@@ -259,4 +261,30 @@ it('records repairs on the fake and prints the report', function (): void {
 
     expect($fake->recorded(TagOperation::Repair))->toHaveCount(1)
         ->and(Tags::repair()->isClean())->toBeTrue();
+});
+
+test('assert_repaired_pass_and_fail', function (): void {
+    $fake = Tags::fake();
+
+    $fake->assertNothingRepaired();
+
+    expect(fn () => $fake->assertRepaired())->toThrow(ExpectationFailedException::class, 'Expected tags to be repaired, but they were not.');
+
+    Tags::repair(new RepairOptions(counts: false, dryRun: true));
+
+    $fake->assertRepaired();
+    $fake->assertRepaired(fn (RepairReport $report): bool => $report->dryRun && $report->isClean());
+
+    expect(fn () => $fake->assertRepaired(fn (RepairReport $report): bool => ! $report->dryRun))
+        ->toThrow(ExpectationFailedException::class, 'Expected a repair, but none matched the callback.')
+        ->and(fn () => $fake->assertNothingRepaired())
+        ->toThrow(ExpectationFailedException::class, 'Expected no repairs, but 1 were recorded.');
+});
+
+test('assert_repaired_sees_the_command', function (): void {
+    $fake = Tags::fake();
+
+    Artisan::call('tags:repair', ['--orphans' => true]);
+
+    $fake->assertRepaired(fn (RepairReport $report): bool => ! $report->dryRun);
 });

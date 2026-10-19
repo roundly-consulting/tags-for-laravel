@@ -10,6 +10,7 @@ use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Model;
 use PHPUnit\Framework\Assert as PHPUnit;
 use RoundlyConsulting\Tags\Contracts\Taggable;
+use RoundlyConsulting\Tags\DataTransferObjects\RepairReport;
 use RoundlyConsulting\Tags\Enums\TagOperation;
 use RoundlyConsulting\Tags\Models\Tag;
 use RoundlyConsulting\Tags\Support\TagSlugs;
@@ -305,8 +306,9 @@ final class TagsFake extends TagsManager
     /**
      * Siblings were reordered, optionally of one type.
      */
-    public function assertTagsReordered(?string $type = null): void
+    public function assertTagsReordered(string|BackedEnum|null $type = null): void
     {
+        $type = $type === null ? null : TagTypeRegistry::nameOf($type);
         $matching = array_filter(
             $this->recorded(TagOperation::ReorderTags),
             static fn (RecordedTagOperation $recorded): bool => $type === null || ($recorded->context['type'] ?? null) === $type,
@@ -323,6 +325,41 @@ final class TagsFake extends TagsManager
             $this->recorded(TagOperation::ReorderTags),
             sprintf('Expected no tags to be reordered, but %d reorders were recorded.', count($this->recorded(TagOperation::ReorderTags))),
         );
+    }
+
+    // Maintenance ----------------------------------------------------------------------
+
+    /**
+     * A repair ran (`Tags::repair()` or `tags:repair`), optionally one whose report the callback
+     * accepts.
+     *
+     * @param  (Closure(RepairReport): bool)|null  $callback
+     */
+    public function assertRepaired(?Closure $callback = null): void
+    {
+        $reports = [];
+
+        foreach ($this->recorded(TagOperation::Repair) as $recorded) {
+            if ($recorded->result instanceof RepairReport) {
+                $reports[] = $recorded->result;
+            }
+        }
+
+        PHPUnit::assertNotEmpty($reports, 'Expected tags to be repaired, but they were not.');
+
+        if ($callback !== null) {
+            PHPUnit::assertNotEmpty(
+                array_filter($reports, static fn (RepairReport $report): bool => $callback($report)),
+                'Expected a repair, but none matched the callback.',
+            );
+        }
+    }
+
+    public function assertNothingRepaired(): void
+    {
+        $count = count($this->recorded(TagOperation::Repair));
+
+        PHPUnit::assertSame(0, $count, "Expected no repairs, but {$count} were recorded.");
     }
 
     /**
