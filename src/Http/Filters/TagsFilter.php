@@ -22,6 +22,10 @@ use RoundlyConsulting\Tags\Support\TagScopes;
  *
  * Values are slugs (or names); with `byId()`, primary keys. `within()` takes a scope model, or a
  * closure resolved when the filter applies (for filters declared before the user is known).
+ *
+ * An empty value (`?filter[category]=`, a cleared select) adds no constraint, in every mode. For
+ * "models with no tag of the type" use the model scope `withoutTags([], $type)` (or an
+ * `AllowedFilter::callback`).
  */
 final class TagsFilter implements Filter
 {
@@ -85,6 +89,10 @@ final class TagsFilter implements Filter
             } elseif (is_int($item)) {
                 $values[] = $this->byId ? $item : (string) $item;
             }
+        }
+
+        if ($values === []) {
+            return;
         }
 
         $within = $this->within instanceof Closure ? ($this->within)() : $this->within;

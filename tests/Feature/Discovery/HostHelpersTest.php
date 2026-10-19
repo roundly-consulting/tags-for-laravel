@@ -179,6 +179,36 @@ test('tags_filter_matches_the_scopes', function (string $mode, array $values, bo
     'none with descendants' => ['none', ['music'], true],
 ]);
 
+test('tags_filter_ignores_an_empty_value', function (string $mode, mixed $value): void {
+    Article::query()->create(['title' => 'tagged'])->attachTags('live', 'label');
+    Article::query()->create(['title' => 'untagged']);
+
+    $query = Article::query()->orderBy('title');
+    TagsFilter::{$mode}('label')->apply($query, $value, 'labels');
+
+    expect($query->pluck('title')->all())->toBe(['tagged', 'untagged']);
+})->with(['any', 'all', 'none'])->with([
+    'empty string' => [''],
+    'blank string' => ['  '],
+    'empty list' => [[]],
+    'list of blanks' => [['', ' ']],
+    'junk' => [[['nested'], null, 1.5]],
+]);
+
+test('tags_filter_ignores_an_empty_query_string_value', function (string $mode): void {
+    Article::query()->create(['title' => 'tagged'])->attachTags('live', 'label');
+    Article::query()->create(['title' => 'untagged']);
+
+    $request = Request::create('/?filter[labels]=', 'GET');
+    $titles = QueryBuilder::for(Article::class, $request)
+        ->allowedFilters(AllowedFilter::custom('labels', TagsFilter::{$mode}('label')))
+        ->orderBy('title')
+        ->pluck('title')
+        ->all();
+
+    expect($titles)->toBe(['tagged', 'untagged']);
+})->with(['any', 'all', 'none']);
+
 it('filters by key, within a scope resolved late', function (): void {
     $team = Team::query()->create(['name' => 'Acme']);
     $teamLabel = Tags::type('label')->within($team)->make('Ours')->create();
