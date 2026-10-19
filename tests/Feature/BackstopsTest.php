@@ -339,3 +339,13 @@ test('detach_counts_only_the_taggings_it_removes', function (): void {
 
     Event::assertNotDispatched(Untagged::class);
 })->skip(fn (): bool => config('tags.primary_key_type') !== 'bigint' || DB::getDriverName() !== 'sqlite', 'staged on sqlite');
+
+// Every package caller sweeps first; a direct store of a tree draft still takes its own locks.
+test('a_direct_store_of_a_tree_draft_takes_its_own_locks', function (): void {
+    $type = app(TagTypeRegistry::class)->resolve('genre');
+
+    $stored = TagTransaction::run(static fn () => TagStore::store(new TagDraft($type, null, '', ['en' => 'Folk'])));
+
+    expect($stored->created)->toBeTrue()
+        ->and(DB::table('tag_locks')->where('type', 'genre')->exists())->toBeTrue();
+});
