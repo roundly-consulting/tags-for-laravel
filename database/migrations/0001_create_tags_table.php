@@ -18,13 +18,18 @@ return new class extends Migration
         $primaryKeyType = KeyType::fromConfig('tags.primary_key_type');
 
         Schema::create(TagsConfig::table('tags'), function (Blueprint $blueprint) use ($table, $primaryKeyType): void {
-            // uuid/ulid keys declare their primary key explicitly: PostgreSQL refuses a self
-            // foreign key onto a column that is not unique.
+            // uuid/ulid keys get an explicit primary() command rather than the fluent modifier:
+            // fluent indexes are added after every other command, so PostgreSQL would see the
+            // self foreign key before the key it references is unique.
             match ($primaryKeyType) {
                 KeyType::BigInt => $blueprint->id(),
-                KeyType::Uuid => $blueprint->uuid('id')->primary(),
-                KeyType::Ulid => $blueprint->ulid('id')->primary(),
+                KeyType::Uuid => $blueprint->uuid('id'),
+                KeyType::Ulid => $blueprint->ulid('id'),
             };
+
+            if ($primaryKeyType !== KeyType::BigInt) {
+                $blueprint->primary('id');
+            }
 
             $blueprint->string('type', 64);
 

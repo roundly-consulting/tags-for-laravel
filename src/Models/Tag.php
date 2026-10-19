@@ -14,8 +14,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use RoundlyConsulting\PackageToolkit\Support\LikeEscaper;
-use RoundlyConsulting\PackageToolkit\Support\RawExpression;
 use RoundlyConsulting\Sluggable\Concerns\HasSlug;
 use RoundlyConsulting\Sluggable\Contracts\Sluggable;
 use RoundlyConsulting\Sluggable\Definitions\SlugOptions;
@@ -23,6 +21,7 @@ use RoundlyConsulting\Tags\Concerns\HasConfigurableKey;
 use RoundlyConsulting\Tags\Database\Factories\TagFactory;
 use RoundlyConsulting\Tags\Exceptions\InvalidTagException;
 use RoundlyConsulting\Tags\Relations\TagsRelation;
+use RoundlyConsulting\Tags\Support\LikeClause;
 use RoundlyConsulting\Tags\Support\ScopeKey;
 use RoundlyConsulting\Tags\Support\TagModel;
 use RoundlyConsulting\Tags\Support\TagPath;
@@ -269,14 +268,10 @@ class Tag extends Model implements Sluggable, Translatable
      */
     public function scopeDescendantsOf(Builder $query, Tag $tag, bool $self = false): void
     {
-        $grammar = $query->getQuery()->getGrammar();
-        $path = $grammar->wrap($this->qualifyColumn('path'));
-        $prefix = LikeEscaper::escape(TagPath::subtreePrefix($tag)).'%';
-
         $query->where($this->qualifyColumn('type'), $tag->type)
             ->where($this->qualifyColumn('scope_key'), $tag->scope_key)
-            ->where(function (Builder $inner) use ($path, $prefix, $tag, $self): void {
-                $inner->whereRaw(new RawExpression("{$path} like ? escape ?"), [$prefix, '\\']);
+            ->where(function (Builder $inner) use ($tag, $self): void {
+                LikeClause::startsWith($inner, $this->qualifyColumn('path'), TagPath::subtreePrefix($tag));
 
                 if ($self) {
                     $inner->orWhere($this->getQualifiedKeyName(), $tag->getKey());

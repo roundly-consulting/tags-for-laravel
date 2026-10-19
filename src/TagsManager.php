@@ -9,7 +9,11 @@ use Closure;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Support\Collection;
 use RoundlyConsulting\Tags\Enums\TagOperation;
+use RoundlyConsulting\Tags\Exceptions\TagNotFoundException;
 use RoundlyConsulting\Tags\Handles\TypeTags;
+use RoundlyConsulting\Tags\Models\Tag;
+use RoundlyConsulting\Tags\Support\KeyShape;
+use RoundlyConsulting\Tags\Support\TagModel;
 use RoundlyConsulting\Tags\Types\TagType;
 use RoundlyConsulting\Tags\Types\TagTypeBuilder;
 use RoundlyConsulting\Tags\Types\TagTypeRegistry;
@@ -65,7 +69,20 @@ class TagsManager
      */
     public function type(string|BackedEnum $type): TypeTags
     {
-        return new TypeTags($this->registry->resolve($type));
+        return new TypeTags($this, $this->registry->resolve($type));
+    }
+
+    /**
+     * A live tag of any type by primary key.
+     */
+    public function find(int|string $key): ?Tag
+    {
+        return KeyShape::isTagKey($key) ? TagModel::query()->whereKey($key)->first() : null;
+    }
+
+    public function findOrFail(int|string $key): Tag
+    {
+        return $this->find($key) ?? throw TagNotFoundException::forKey($key);
     }
 
     /**
