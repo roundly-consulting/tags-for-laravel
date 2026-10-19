@@ -226,6 +226,27 @@ final readonly class TypeTags
     }
 
     /**
+     * A deleted tag of this type in exactly this handle's scope — the scope a restore writes to:
+     * a model, a key (int), or a name or slug (string, along the locale chain). Live tags and
+     * other scopes' tags (a global one from a scoped handle included) are never returned:
+     * `$labels->restore($labels->findTrashed('rock'))`.
+     */
+    public function findTrashed(Tag|int|string $tag): ?Tag
+    {
+        $query = TagModel::query()->onlyTrashed()->where('type', $this->type->name)->where('scope_key', $this->writeScopeKey());
+
+        if ($tag instanceof Tag) {
+            return $query->whereKey($tag->getKey())->first();
+        }
+
+        if (is_int($tag)) {
+            return KeyShape::isTagKey($tag) ? $query->whereKey($tag)->first() : null;
+        }
+
+        return TagLookup::byStrings($this->type, [$this->writeScopeKey()], [$tag], trashed: true)[$tag] ?? null;
+    }
+
+    /**
      * Live tags of this type in the readable scopes by primary key (int, or a uuid/ulid string),
      * in the order given. Keys that are malformed, missing or of another type or scope are
      * skipped — the recipe for ids a form validated with `TagsRule::byId()`.

@@ -89,7 +89,9 @@ abstract class Controller
 
     /**
      * The `{tag}` segment: a key (always a key when it fits the key type), else a slug or name,
-     * in the readable scopes — or, for a write, in exactly the request's scope.
+     * in the readable scopes — or, for a write, in exactly the request's scope. With
+     * `$withTrashed` (restore), a slug or name that names no live tag names a deleted one of
+     * exactly the request's scope.
      */
     protected function pathTag(TagsRequest $request, TypeTags $handle, string $segment, bool $write = false, bool $withTrashed = false): Tag
     {
@@ -101,6 +103,10 @@ abstract class Controller
             $tag = ($withTrashed ? $query->withTrashed() : $query)->first();
         } else {
             $tag = TagLookup::byStrings($type, $keys, [$segment])[$segment] ?? null;
+
+            if ($tag === null && $withTrashed) {
+                $tag = $handle->findTrashed($segment);
+            }
         }
 
         return $tag ?? throw new PathNotFound(TagNotFoundException::generic());

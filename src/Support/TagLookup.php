@@ -20,13 +20,14 @@ final class TagLookup
 {
     /**
      * One live tag per string, preferring the earlier scope key (the model's scope before the
-     * global one), then the earlier chain locale. Strings that name no tag are left out.
+     * global one), then the earlier chain locale. Strings that name no tag are left out. With
+     * `$trashed`, the same identity rule over deleted tags only.
      *
      * @param  list<string>  $scopeKeys  in preference order
      * @param  list<string>  $inputs
      * @return array<string, Tag> input => tag
      */
-    public static function byStrings(TagType $type, array $scopeKeys, array $inputs): array
+    public static function byStrings(TagType $type, array $scopeKeys, array $inputs, bool $trashed = false): array
     {
         [$candidates, $chain] = self::candidates($inputs);
 
@@ -34,7 +35,7 @@ final class TagLookup
             return [];
         }
 
-        $tags = self::query($type, $scopeKeys, $candidates, $chain)->orderBy(TagModel::make()->getKeyName())->get();
+        $tags = self::query($type, $scopeKeys, $candidates, $chain, $trashed)->orderBy(TagModel::make()->getKeyName())->get();
         $found = [];
 
         foreach ($candidates as $input => $slugs) {
@@ -175,9 +176,13 @@ final class TagLookup
      * @param  list<string>  $chain
      * @return Builder<Tag>
      */
-    private static function query(TagType $type, ?array $scopeKeys, array $candidates, array $chain): Builder
+    private static function query(TagType $type, ?array $scopeKeys, array $candidates, array $chain, bool $trashed = false): Builder
     {
         $query = TagModel::query()->where('type', $type->name);
+
+        if ($trashed) {
+            $query->onlyTrashed();
+        }
 
         if ($scopeKeys !== null) {
             $query->whereIn('scope_key', $scopeKeys);

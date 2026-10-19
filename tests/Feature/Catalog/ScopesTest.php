@@ -30,6 +30,46 @@ test('within_reads_scope_and_global', function (): void {
         ->and(Tags::type('tag')->within($this->acme)->find((int) $globex->id))->toBeNull();
 })->skip(fn (): bool => config('tags.primary_key_type') !== 'bigint', 'int keys');
 
+test('find_trashed_reads_only_the_handles_own_scope', function (string $case): void {
+    $handle = Tags::type('tag')->within($this->acme);
+    $old = $handle->make('Old Printer')->create();
+    $handle->delete($old);
+    $live = $handle->make('Scanner')->create();
+    $global = Tags::type('tag')->make('Fax')->create();
+    Tags::type('tag')->delete($global);
+    $theirs = Tags::type('tag')->within($this->globex)->make('Telex')->create();
+    Tags::type('tag')->within($this->globex)->delete($theirs);
+
+    [$input, $expected] = match ($case) {
+        'model' => [$old, $old],
+        'key' => [(int) $old->getKey(), $old],
+        'slug' => ['old-printer', $old],
+        'name' => ['Old Printer', $old],
+        'live tag' => [$live, null],
+        'live slug' => ['scanner', null],
+        'global from a scoped handle' => ['fax', null],
+        'global model from a scoped handle' => [$global, null],
+        'another scope' => ['telex', null],
+        'another scope by key' => [(int) $theirs->getKey(), null],
+        'malformed key' => [0, null],
+        'unsluggable' => ['!!!', null],
+    };
+
+    $found = $handle->findTrashed($input);
+
+    if ($expected === null) {
+        expect($found)->toBeNull();
+    } else {
+        expect($found?->is($expected))->toBeTrue()
+            ->and($found?->trashed())->toBeTrue();
+    }
+
+    expect(Tags::type('tag')->findTrashed('fax')?->is($global))->toBeTrue();
+})->with([
+    'model', 'key', 'slug', 'name', 'live tag', 'live slug', 'global from a scoped handle',
+    'global model from a scoped handle', 'another scope', 'another scope by key', 'malformed key', 'unsluggable',
+])->skip(fn (): bool => config('tags.primary_key_type') !== 'bigint', 'int keys');
+
 test('scoped_then_global_resolution', function (): void {
     $global = Tags::type('tag')->make('Printer')->create();
     $scoped = Tags::type('tag')->within($this->acme)->make('Printer')->create();

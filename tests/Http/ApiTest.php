@@ -132,6 +132,43 @@ it('creates, updates, moves, reorders, deletes and restores for managers', funct
     $fake->assertTagRestored();
 })->skip(fn (): bool => config('tags.primary_key_type') !== 'bigint', 'int keys');
 
+test('restore_addresses_a_deleted_tag_by_slug', function (): void {
+    apiUser(admin: true);
+    $rock = Tags::type('genre')->make('Rock')->create();
+    Tags::type('genre')->delete($rock);
+
+    $this->postJson('/api/tags/genre/rock/restore')
+        ->assertOk()
+        ->assertJsonPath('data.slug', 'rock')
+        ->assertJsonMissingPath('data.deleted_at');
+
+    expect($rock->fresh()?->trashed())->toBeFalse();
+
+    // A live tag by slug restores as a no-op, like a live key; an unknown slug is not found.
+    $this->postJson('/api/tags/genre/jazz/restore')->assertOk()->assertJsonPath('data.slug', 'jazz');
+    $this->postJson('/api/tags/genre/polka/restore')->assertNotFound()->assertJson(['code' => 'tag_not_found']);
+});
+
+test('restore_by_slug_never_reaches_another_scope', function (): void {
+    apiUser(admin: true);
+    $acme = Team::query()->create(['name' => 'Acme']);
+    $globex = Team::query()->create(['name' => 'Globex']);
+    $theirs = Tags::type('label')->within($globex)->make('Fax')->create();
+    Tags::type('label')->within($globex)->delete($theirs);
+    $global = Tags::type('label')->make('Telex')->create();
+    Tags::type('label')->delete($global);
+
+    $this->postJson('/api/tags/label/fax/restore?scope=team:'.$acme->getKey())->assertNotFound()->assertJson(['code' => 'tag_not_found']);
+    $this->postJson('/api/tags/label/telex/restore?scope=team:'.$acme->getKey())->assertNotFound()->assertJson(['code' => 'tag_not_found']);
+    $this->postJson('/api/tags/label/fax/restore')->assertNotFound()->assertJson(['code' => 'tag_not_found']);
+
+    expect($theirs->fresh()?->trashed())->toBeTrue()
+        ->and($global->fresh()?->trashed())->toBeTrue();
+
+    $this->postJson('/api/tags/label/fax/restore?scope=team:'.$globex->getKey())->assertOk()->assertJsonPath('data.slug', 'fax');
+    $this->postJson('/api/tags/label/telex/restore')->assertOk()->assertJsonPath('data.slug', 'telex');
+});
+
 it('refuses writes to readers', function (): void {
     apiUser();
 
