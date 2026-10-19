@@ -38,7 +38,8 @@ use RoundlyConsulting\Tags\Types\TagTypeRegistry;
  * class-string and bound as a singleton. Types are declared here (`define`, `extend`), the
  * catalog of one type is reached through `type()`, and a model's tags through `for()` or the flat
  * verbs. Every write funnels through {@see self::perform()}, which resolves the action from the
- * container — so a host override applies and `Tags::fake()` records it.
+ * container — so a host override applies and `Tags::fake()` records it. A tagging verb drops the
+ * model's loaded `tags` relation, so a later read sees the write.
  *
  * Not final on purpose: `TagsFake` extends it, so an injected manager still type-checks under
  * the fake.
@@ -134,12 +135,12 @@ class TagsManager
     {
         $selection = TagSelection::of($tags, $type);
 
-        return $this->perform(
+        return self::refreshed($taggable, $this->perform(
             TagOperation::Attach,
             AttachTagsAction::class,
             static fn (AttachTagsAction $action): TagChanges => $action->execute($taggable, $selection),
             ['taggable' => $taggable, 'tags' => $selection->tags, 'type' => $selection->type],
-        );
+        ));
     }
 
     /**
@@ -151,12 +152,12 @@ class TagsManager
     {
         $selection = TagSelection::of($tags, $type);
 
-        return $this->perform(
+        return self::refreshed($taggable, $this->perform(
             TagOperation::Detach,
             DetachTagsAction::class,
             static fn (DetachTagsAction $action): TagChanges => $action->execute($taggable, $selection),
             ['taggable' => $taggable, 'tags' => $selection->tags, 'type' => $selection->type],
-        );
+        ));
     }
 
     /**
@@ -168,12 +169,12 @@ class TagsManager
     {
         $selection = TagSelection::of($tags, $type);
 
-        return $this->perform(
+        return self::refreshed($taggable, $this->perform(
             TagOperation::Sync,
             SyncTagsAction::class,
             static fn (SyncTagsAction $action): TagChanges => $action->execute($taggable, $selection),
             ['taggable' => $taggable, 'tags' => $selection->tags, 'type' => $selection->type],
-        );
+        ));
     }
 
     /**
@@ -181,12 +182,12 @@ class TagsManager
      */
     public function clear(Model&Taggable $taggable, string|BackedEnum|null $type = null): TagChanges
     {
-        return $this->perform(
+        return self::refreshed($taggable, $this->perform(
             TagOperation::Clear,
             ClearTagsAction::class,
             static fn (ClearTagsAction $action): TagChanges => $action->execute($taggable, $type),
             ['taggable' => $taggable, 'type' => $type === null ? null : TagTypeRegistry::nameOf($type)],
-        );
+        ));
     }
 
     /**
@@ -238,6 +239,17 @@ class TagsManager
     public function perform(TagOperation $operation, string $action, Closure $execute, array $context = []): mixed
     {
         return $execute($this->container()->make($action));
+    }
+
+    /**
+     * After a tagging write: drop the model's loaded `tags` relation, so a later read (`tagsOf()`,
+     * a resource) sees the write instead of what was loaded before it.
+     */
+    private static function refreshed(Model $taggable, TagChanges $changes): TagChanges
+    {
+        $taggable->unsetRelation('tags');
+
+        return $changes;
     }
 
     /**

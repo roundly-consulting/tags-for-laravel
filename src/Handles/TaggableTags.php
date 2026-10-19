@@ -18,8 +18,8 @@ use RoundlyConsulting\Tags\Types\TagTypeRegistry;
 
 /**
  * One model's tags: `Tags::for($event)`. Writes go through the manager's flat verbs (so the fake
- * records them) and return the handle for chaining; after a write the model's loaded `tags`
- * relation is dropped, so a chained read sees the change.
+ * records them, and the model's loaded `tags` relation is dropped, so a chained read sees the
+ * change) and return the handle for chaining.
  */
 final readonly class TaggableTags
 {
@@ -34,7 +34,6 @@ final readonly class TaggableTags
     public function attach(mixed $tags, string|BackedEnum|null $type = null): self
     {
         $this->manager->attach($this->taggable, $tags, $type);
-        $this->taggable->unsetRelation('tags');
 
         return $this;
     }
@@ -45,7 +44,6 @@ final readonly class TaggableTags
     public function detach(mixed $tags, string|BackedEnum|null $type = null): self
     {
         $this->manager->detach($this->taggable, $tags, $type);
-        $this->taggable->unsetRelation('tags');
 
         return $this;
     }
@@ -56,7 +54,6 @@ final readonly class TaggableTags
     public function sync(mixed $tags, string|BackedEnum|null $type = null): self
     {
         $this->manager->sync($this->taggable, $tags, $type);
-        $this->taggable->unsetRelation('tags');
 
         return $this;
     }
@@ -64,7 +61,6 @@ final readonly class TaggableTags
     public function clear(string|BackedEnum|null $type = null): self
     {
         $this->manager->clear($this->taggable, $type);
-        $this->taggable->unsetRelation('tags');
 
         return $this;
     }

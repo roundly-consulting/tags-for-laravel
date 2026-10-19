@@ -12,6 +12,7 @@ use RoundlyConsulting\Tags\Contracts\Taggable;
 use RoundlyConsulting\Tags\DataTransferObjects\RepairReport;
 use RoundlyConsulting\Tags\Enums\TagOperation;
 use RoundlyConsulting\Tags\Models\Tag;
+use RoundlyConsulting\Tags\Support\TagModel;
 use RoundlyConsulting\Tags\Support\TagSlugs;
 use RoundlyConsulting\Tags\TagsManager;
 use RoundlyConsulting\Tags\Types\TagTypeRegistry;
@@ -143,7 +144,8 @@ final class TagsFake extends TagsManager
         PHPUnit::assertNotEmpty($syncs, "Expected the model's [{$name}] tags to be synced, but they were not.");
 
         if ($tags !== null && $model instanceof Taggable) {
-            $current = array_values($this->for($model)->of($name)->all());
+            // Read from the database, never a loaded relation that may predate the sync.
+            $current = array_values($model->tags()->where(TagModel::make()->qualifyColumn('type'), $name)->get()->all());
 
             PHPUnit::assertCount(count($tags), $current, "Expected the model's [{$name}] tags to be synced to ".count($tags).' tag(s), but it carries '.count($current).'.');
 

@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Database\Eloquent\Collection;
 use PHPUnit\Framework\ExpectationFailedException;
 use RoundlyConsulting\Tags\DataTransferObjects\TagChanges;
 use RoundlyConsulting\Tags\Enums\TagOperation;
@@ -261,4 +262,41 @@ test('tag_changes_of_type_filters_created_tags', function (): void {
     expect(array_map(fn (Tag $tag): ?string => $tag->slug, $combined->ofType('label')->created))->toBe(['new'])
         ->and($combined->ofType('label')->restored)->toBe([])
         ->and(array_map(fn (Tag $tag): ?string => $tag->slug, $combined->ofType('genre')->restored))->toBe(['jazz']);
+});
+
+// A model loaded with its tags (route binding, a resource) then written through a flat verb:
+// later reads see the write, under the fake and without it.
+test('flat_verbs_drop_the_loaded_relation', function (bool $faked): void {
+    $faked && Tags::fake();
+    $this->article->load('tags');
+
+    Tags::attach($this->article, ['live'], 'label');
+    expect($this->article->tagsOf('label')->pluck('slug')->all())->toBe(['live']);
+
+    Tags::sync($this->article, ['free'], 'label');
+    expect($this->article->tagOf('label')?->slug)->toBe('free');
+
+    $this->article->load('tags');
+    Tags::detach($this->article, 'free', 'label');
+    expect($this->article->tagsOf('label'))->toHaveCount(0);
+
+    Tags::attach($this->article, ['rock']);
+    $this->article->load('tags');
+    Tags::clear($this->article);
+    expect($this->article->tagsOf('tag'))->toHaveCount(0);
+})->with(['real' => false, 'faked' => true]);
+
+test('assert_synced_reads_fresh_tags', function (): void {
+    $fake = Tags::fake();
+    $this->article->load('tags');
+
+    Tags::sync($this->article, ['rock']);
+
+    $fake->assertSynced($this->article, 'tag', ['rock']);
+
+    // A stale loaded relation that still lists the old set never lets the assertion pass.
+    $this->article->attachTags(['jazz']);
+    $this->article->setRelation('tags', new Collection([Tag::query()->where('slug->en', 'rock')->firstOrFail()]));
+
+    expect(fn () => $fake->assertSynced($this->article, 'tag', ['rock']))->toThrow(ExpectationFailedException::class);
 });
