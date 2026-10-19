@@ -3,11 +3,14 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
 use RoundlyConsulting\Tags\Enums\TypeSource;
 use RoundlyConsulting\Tags\Exceptions\InvalidTagTypeException;
 use RoundlyConsulting\Tags\Exceptions\TagTypeAlreadyDefinedException;
 use RoundlyConsulting\Tags\Exceptions\UnknownTagTypeException;
 use RoundlyConsulting\Tags\Facades\Tags;
+use RoundlyConsulting\Tags\Http\Filters\TagsFilter;
+use RoundlyConsulting\Tags\Rules\TagsRule;
 use RoundlyConsulting\Tags\Tests\Fixtures\FixtureTypesServiceProvider;
 use RoundlyConsulting\Tags\Tests\Fixtures\HostExtendServiceProvider;
 use RoundlyConsulting\Tags\Tests\Fixtures\Models\Article;
@@ -312,6 +315,10 @@ test('unknown_types_throw_everywhere', function (Closure $use): void {
     'registry' => [fn () => app(TagTypeRegistry::class)->resolve('nope')],
     'type handle' => [fn () => Tags::type('nope')],
     'malformed name' => [fn () => Tags::type('No Pe')],
+    'trait' => [fn () => Article::query()->create()->attachTags('x', 'nope')],
+    'scope' => [fn () => Article::query()->withAnyTags('x', 'nope')->get()],
+    'rule' => [fn () => Validator::make(['t' => ['x']], ['t' => [TagsRule::for('nope')]])->passes()],
+    'filter' => [fn () => TagsFilter::any('nope')->apply(Article::query(), 'x', 'tags')],
 ]);
 
 test('enum_type_names_are_accepted_everywhere', function (): void {

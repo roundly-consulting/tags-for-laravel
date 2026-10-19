@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Tags\Tests\Support;
 
 use Closure;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Assert;
@@ -42,6 +43,13 @@ final class KeyTypeScenarios
         Assert::assertSame(1, $music->descendants()->count());
         Assert::assertSame('Music', $jazz->ancestors()->first()?->name);
         Assert::assertNull(Tags::find(42));
+        Assert::assertTrue((new Tag)->resolveRouteBindingQuery(Tag::query(), (string) $jazz->getKey())->exists());
+
+        try {
+            (new Tag)->resolveRouteBindingQuery(Tag::query(), 'not-a-key');
+            Assert::fail('A malformed key must never reach the database.');
+        } catch (ModelNotFoundException) {
+        }
         Assert::assertNull(Tags::find(Str::random(10)));
         Assert::assertSame($team->getKey(), Tag::query()->findOrFail($music->getKey())->scope_id);
 
