@@ -20,6 +20,7 @@ use RoundlyConsulting\Tags\Testing\TagsFake;
  * @method static \RoundlyConsulting\Tags\DataTransferObjects\TagChanges detach(\Illuminate\Database\Eloquent\Model&\RoundlyConsulting\Tags\Contracts\Taggable $taggable, mixed $tags, \BackedEnum|string|null $type = null)
  * @method static \RoundlyConsulting\Tags\DataTransferObjects\TagChanges sync(\Illuminate\Database\Eloquent\Model&\RoundlyConsulting\Tags\Contracts\Taggable $taggable, mixed $tags, \BackedEnum|string|null $type = null)
  * @method static \RoundlyConsulting\Tags\DataTransferObjects\TagChanges clear(\Illuminate\Database\Eloquent\Model&\RoundlyConsulting\Tags\Contracts\Taggable $taggable, \BackedEnum|string|null $type = null)
+ * @method static \RoundlyConsulting\Tags\DataTransferObjects\RepairReport repair(\RoundlyConsulting\Tags\DataTransferObjects\RepairOptions|null $options = null)
  * @method static void assertNothingHappened()
  * @method static void assertTagged(\Illuminate\Database\Eloquent\Model $model, list<\RoundlyConsulting\Tags\Models\Tag|string>|null $tags = null, \BackedEnum|string|null $type = null)
  * @method static void assertNothingTagged()

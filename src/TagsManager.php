@@ -10,11 +10,14 @@ use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use RoundlyConsulting\Tags\Actions\Internal\ClearDeletedTaggableAction;
+use RoundlyConsulting\Tags\Actions\Maintenance\RepairTagsAction;
 use RoundlyConsulting\Tags\Actions\Tagging\AttachTagsAction;
 use RoundlyConsulting\Tags\Actions\Tagging\ClearTagsAction;
 use RoundlyConsulting\Tags\Actions\Tagging\DetachTagsAction;
 use RoundlyConsulting\Tags\Actions\Tagging\SyncTagsAction;
 use RoundlyConsulting\Tags\Contracts\Taggable;
+use RoundlyConsulting\Tags\DataTransferObjects\RepairOptions;
+use RoundlyConsulting\Tags\DataTransferObjects\RepairReport;
 use RoundlyConsulting\Tags\DataTransferObjects\TagChanges;
 use RoundlyConsulting\Tags\DataTransferObjects\TagSelection;
 use RoundlyConsulting\Tags\Enums\TagOperation;
@@ -181,6 +184,21 @@ class TagsManager
             ClearDeletedTaggableAction::class,
             static fn (ClearDeletedTaggableAction $action): TagChanges => $action->execute($taggable),
             ['taggable' => $taggable, 'type' => null],
+        );
+    }
+
+    /**
+     * Repair derived data: paths and depths, scope keys, orphan taggings and usage counts.
+     */
+    public function repair(?RepairOptions $options = null): RepairReport
+    {
+        $options ??= new RepairOptions;
+
+        return $this->perform(
+            TagOperation::Repair,
+            RepairTagsAction::class,
+            static fn (RepairTagsAction $action): RepairReport => $action->execute($options),
+            ['options' => $options],
         );
     }
 

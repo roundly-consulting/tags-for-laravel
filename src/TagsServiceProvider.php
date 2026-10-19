@@ -10,6 +10,8 @@ use Illuminate\Support\Facades\RateLimiter;
 use RoundlyConsulting\PackageToolkit\Concerns\RegistersBlueprintMacros;
 use RoundlyConsulting\PackageToolkit\Package;
 use RoundlyConsulting\PackageToolkit\PackageServiceProvider;
+use RoundlyConsulting\Tags\Commands\DoctorCommand;
+use RoundlyConsulting\Tags\Commands\RepairCommand;
 use RoundlyConsulting\Tags\Commands\TypesCommand;
 use RoundlyConsulting\Tags\Support\TagsConfig;
 use RoundlyConsulting\Tags\Types\TagTypeRegistry;
@@ -28,6 +30,8 @@ final class TagsServiceProvider extends PackageServiceProvider
             ->hasRoutes('tags.php', 'tags.routes.enabled')
             ->hasCommands([
                 TypesCommand::class,
+                DoctorCommand::class,
+                RepairCommand::class,
             ])
             ->contributesToAbout($this->aboutSection(...));
     }

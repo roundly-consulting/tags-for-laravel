@@ -1,0 +1,197 @@
+<?php
+
+declare(strict_types=1);
+
+use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
+use RoundlyConsulting\Sluggable\Support\IndexNames;
+use RoundlyConsulting\Tags\DataTransferObjects\RepairOptions;
+use RoundlyConsulting\Tags\Enums\TagOperation;
+use RoundlyConsulting\Tags\Facades\Tags;
+use RoundlyConsulting\Tags\Models\Tag;
+use RoundlyConsulting\Tags\Models\Tagging;
+use RoundlyConsulting\Tags\Tests\Fixtures\Models\Article;
+use RoundlyConsulting\Tags\Tests\Fixtures\Models\Note;
+use RoundlyConsulting\Tags\Tests\Fixtures\Models\ScopedArticle;
+use RoundlyConsulting\Tags\Tests\Fixtures\Models\Team;
+use RoundlyConsulting\Tags\Tests\Fixtures\Models\UuidArticle;
+
+/**
+ * @return list<array{severity: string, section: string, message: string}>
+ */
+function doctorFindings(array $options = []): array
+{
+    Artisan::call('tags:doctor', ['--json' => true, ...$options]);
+
+    return json_decode(Artisan::output(), true, flags: JSON_THROW_ON_ERROR);
+}
+
+beforeEach(function (): void {
+    Tags::define('genre')->hierarchical()->single();
+    $this->music = Tags::type('genre')->make('Music')->create();
+    $this->jazz = Tags::type('genre')->make('Jazz')->under($this->music)->create();
+    $this->bebop = Tags::type('genre')->make('Bebop')->under($this->jazz)->create();
+});
+
+it('finds nothing on healthy data', function (): void {
+    Article::query()->create()->syncTags($this->jazz, 'genre');
+
+    $this->artisan('tags:doctor')->expectsOutputToContain('No problems found.')->assertSuccessful();
+    expect(doctorFindings(['--counts' => true]))->toBe([]);
+});
+
+test('doctor_reports_and_repair_fixes_bad_paths', function (): void {
+    // A parent set past the package: paths and depths no longer match.
+    Tag::query()->whereKey($this->bebop->getKey())->toBase()->update(['path' => '/', 'depth' => 1]);
+    Tag::query()->whereKey($this->jazz->getKey())->toBase()->update(['depth' => 7]);
+
+    $findings = doctorFindings();
+
+    expect(collect($findings)->pluck('message')->join(' '))->toContain('2 tag(s) have a path or depth')
+        ->and($findings[0]['severity'])->toBe('error');
+
+    $this->artisan('tags:doctor')->assertFailed();
+
+    $dry = Tags::repair(new RepairOptions(dryRun: true));
+
+    expect($dry->paths)->toBe(2)->and($dry->dryRun)->toBeTrue()->and($this->bebop->fresh()?->depth)->toBe(1);
+
+    $this->artisan('tags:repair', ['--paths' => true])->expectsOutputToContain('paths')->assertSuccessful();
+
+    expect($this->bebop->fresh()?->path)->toBe('/'.$this->music->getKey().'/'.$this->jazz->getKey().'/')
+        ->and($this->bebop->fresh()?->depth)->toBe(3)
+        ->and($this->jazz->fresh()?->depth)->toBe(2)
+        ->and(doctorFindings())->toBe([]);
+});
+
+it('reports cycles without placing them', function (): void {
+    Tag::query()->whereKey($this->music->getKey())->toBase()->update(['parent_id' => $this->bebop->getKey()]);
+
+    $report = Tags::repair(new RepairOptions(scopeKeys: false, counts: false, orphans: false));
+
+    expect($report->cycles)->toBe(3)
+        ->and($report->isClean())->toBeFalse()
+        ->and(collect(doctorFindings())->pluck('message')->join(' '))->toContain('parent cycle');
+});
+
+it('reports and repairs scope key drift', function (): void {
+    $team = Team::query()->create(['name' => 'Acme']);
+    $scoped = Tags::type('tag')->within($team)->make('Ours')->create();
+    Tag::query()->whereKey($scoped->getKey())->toBase()->update(['scope_key' => 'wrong']);
+
+    expect(collect(doctorFindings())->pluck('section')->all())->toContain('scopes');
+
+    $this->artisan('tags:repair', ['--scope-keys' => true])->assertSuccessful();
+
+    expect($scoped->fresh()?->scope_key)->not->toBe('wrong')->and(doctorFindings())->toBe([]);
+});
+
+test('repair_recounts_drifted_counts', function (): void {
+    Article::query()->create()->syncTags($this->jazz, 'genre');
+    Tag::query()->whereKey($this->jazz->getKey())->toBase()->update(['usage_count' => 9]);
+    Tag::query()->whereKey($this->music->getKey())->toBase()->update(['usage_count' => 4]);
+
+    expect(doctorFindings())->toBe([])
+        ->and(collect(doctorFindings(['--counts' => true]))->pluck('message')->join(' '))->toContain('2 tag(s) have a usage count');
+
+    $this->artisan('tags:repair', ['--counts' => true, '--type' => 'genre'])->assertSuccessful();
+
+    expect($this->jazz->fresh()?->usage_count)->toBe(1)->and($this->music->fresh()?->usage_count)->toBe(0);
+});
+
+test('repair_removes_orphan_taggings', function (): void {
+    $kept = Article::query()->create();
+    $gone = Article::query()->create();
+    $kept->attachTags('live');
+    $gone->attachTags('live');
+    $trashed = Article::query()->create();
+    $trashed->attachTags('live');
+    $trashed->delete();
+
+    // A mass delete fires no model event: the tagging stays behind.
+    Article::query()->whereKey($gone->getKey())->forceDelete();
+    Tagging::query()->insert(['tag_id' => Tag::query()->where('slug->en', 'live')->value('id'), 'taggable_type' => 'Gone\\Model', 'taggable_id' => 1, 'type' => 'tag']);
+
+    expect(collect(doctorFindings())->pluck('section')->all())->toContain('orphans');
+
+    $dry = Tags::repair(new RepairOptions(paths: false, scopeKeys: false, counts: false, dryRun: true));
+
+    expect($dry->orphans)->toBe(1)->and($dry->unresolvableTypes)->toBe(['Gone\\Model']);
+
+    $this->artisan('tags:repair', ['--orphans' => true, '--counts' => true])
+        ->expectsOutputToContain('it is no model class')
+        ->assertSuccessful();
+
+    expect(Tagging::query()->where('taggable_type', $kept->getMorphClass())->count())->toBe(2)
+        ->and(Tag::query()->where('slug->en', 'live')->firstOrFail()->usage_count)->toBe(3);
+})->skip(fn (): bool => config('tags.primary_key_type') !== 'bigint', 'raw rows');
+
+test('doctor_reports_missing_locale_indexes', function (): void {
+    $table = 'tags';
+    DB::statement('drop index '.(DB::getDriverName() === 'mysql' ? '`'.IndexNames::index($table, 'slug', 'sk').'` on `tags`' : '"'.IndexNames::index($table, 'slug', 'sk').'"'));
+
+    expect(collect(doctorFindings())->pluck('message')->join(' '))->toContain('No unique slug index for the locale [sk]');
+});
+
+it('reports the type problems', function (): void {
+    Tags::extend('genere', static fn ($type) => $type);
+    config()->set('tags.overrides', ['lable' => ['max' => 2]]);
+    Tags::define('broken')->max(0);
+    Tag::factory()->ofType('gone')->create();
+
+    $messages = collect(doctorFindings())->pluck('message')->join(' ');
+
+    expect($messages)->toContain('undefined type [gone]')
+        ->toContain('adjusts [genere]')
+        ->toContain('adjusts [lable]')
+        ->toContain('max below 1');
+});
+
+it('reports models over a lowered max and parents on a flat type', function (): void {
+    Tags::define('label')->max(3);
+    Article::query()->create()->attachTags(['a', 'b', 'c'], 'label');
+    config()->set('tags.overrides', ['label' => ['max' => 2], 'genre' => ['hierarchical' => false]]);
+    Tags::extend('label', static fn ($type) => $type);
+    Tags::extend('genre', static fn ($type) => $type);
+
+    $messages = collect(doctorFindings())->pluck('message')->join(' ');
+
+    expect($messages)->toContain('1 model(s) carry more [label] tags than its max of 2')
+        ->toContain('flat type [genre] have parents');
+});
+
+it('reports key-type mismatches and other connections', function (): void {
+    Tags::define('label')->on(UuidArticle::class, Note::class);
+
+    $findings = collect(doctorFindings());
+
+    expect($findings->pluck('message')->join(' '))->toContain('UuidArticle is keyed by uuid, but tags.key_type is bigint')
+        ->and($findings->where('section', 'keys'))->toHaveCount(1);
+})->skip(fn (): bool => config('tags.key_type') !== 'bigint', 'the bigint leg');
+
+it('warns about taggings outside their model scope and an unguarded API', function (): void {
+    $acme = Team::query()->create(['name' => 'Acme']);
+    $globex = Team::query()->create(['name' => 'Globex']);
+    $article = ScopedArticle::query()->create(['team_id' => $acme->getKey()]);
+    $article->attachTags('printer');
+    $article->update(['team_id' => $globex->getKey()]);
+    config()->set('tags.routes.enabled', 'on');
+    config()->set('tags.routes.middleware', ['api']);
+
+    $findings = collect(doctorFindings());
+
+    expect($findings->pluck('message')->join(' '))->toContain("1 tagging(s) sit outside their model's current scope")
+        ->toContain('without the auth middleware')
+        ->and($findings->every(fn (array $finding): bool => $finding['severity'] === 'warning'))->toBeTrue();
+
+    $this->artisan('tags:doctor')->assertSuccessful();
+});
+
+it('records repairs on the fake and prints the report', function (): void {
+    $fake = Tags::fake();
+
+    $this->artisan('tags:repair', ['--dry-run' => true])->expectsOutputToContain('Would fix')->assertSuccessful();
+
+    expect($fake->recorded(TagOperation::Repair))->toHaveCount(1)
+        ->and(Tags::repair()->isClean())->toBeTrue();
+});
