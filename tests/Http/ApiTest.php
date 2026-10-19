@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\DB;
+use RoundlyConsulting\Tags\Exceptions\InvalidTagException;
 use RoundlyConsulting\Tags\Facades\Tags;
 use RoundlyConsulting\Tags\Models\Tag;
 use RoundlyConsulting\Tags\Tests\Fixtures\Models\Article;
@@ -203,6 +204,17 @@ test('form_encoded_position_is_honoured', function (): void {
         ->assertJsonPath('data.position', 1);
 
     expect(Tags::type('genre')->roots()->pluck('slug')->all())->toBe(['jazz', 'second', 'first', 'music', 'rock']);
+});
+
+// The position column is a 32-bit integer: a larger one is invalid input, never a database error.
+test('a_position_past_the_column_range_is_refused', function (): void {
+    apiUser(admin: true);
+
+    $this->postJson('/api/tags/genre', ['name' => ['en' => 'Far'], 'position' => 3_000_000_000])->assertUnprocessable()->assertJsonValidationErrors('position');
+    $this->postJson("/api/tags/genre/{$this->jazz->getKey()}/move", ['parent' => null, 'position' => 3_000_000_000])->assertUnprocessable()->assertJsonValidationErrors('position');
+
+    expect(fn () => Tags::type('genre')->make('Far')->position(3_000_000_000))->toThrow(InvalidTagException::class)
+        ->and(Tags::type('genre')->make('Near')->position(2_147_483_647)->create()->position)->toBe(2_147_483_647);
 });
 
 test('move_and_store_accept_an_integer_parent', function (): void {

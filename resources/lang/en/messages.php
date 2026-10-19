@@ -32,7 +32,7 @@ return [
         'description' => 'A tag description is plain text.',
         'slug' => 'A tag slug is lowercase letters, digits and separators.',
         'manual_slug_free_form' => 'Tags of type [:type] take their slug from the name: only curated types accept a slug.',
-        'position' => 'A tag position is zero or more.',
+        'position' => 'A tag position is zero or more, at most :max.',
         'global_only' => 'Tags of type [:type] are always global and cannot belong to a scope.',
         'immutable' => 'The [:attribute] of a tag never changes.',
     ],

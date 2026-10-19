@@ -32,7 +32,7 @@ return [
         'description' => 'Popis štítka je obyčajný text.',
         'slug' => 'Slug štítka tvoria malé písmená, číslice a oddeľovače.',
         'manual_slug_free_form' => 'Štítky typu [:type] berú slug z názvu: vlastný slug prijímajú len kurátorované typy.',
-        'position' => 'Pozícia štítka je nula alebo viac.',
+        'position' => 'Pozícia štítka je nula alebo viac, najviac :max.',
         'global_only' => 'Štítky typu [:type] sú vždy globálne a nemôžu patriť do rozsahu.',
         'immutable' => 'Hodnota [:attribute] štítka sa nikdy nemení.',
     ],

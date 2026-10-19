@@ -139,7 +139,7 @@ abstract class Controller
             return $value;
         }
 
-        return is_string($value) && preg_match('/^[0-9]{1,9}$/D', $value) === 1 ? (int) $value : null;
+        return is_string($value) && preg_match('/^[0-9]{1,10}$/D', $value) === 1 ? (int) $value : null;
     }
 
     /**

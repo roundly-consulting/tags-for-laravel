@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Tags\Exceptions;
 
 use RoundlyConsulting\Tags\Support\Messages;
+use RoundlyConsulting\Tags\Support\TagAttributes;
 
 /**
  * A tag attribute the package refuses: a blank, too long or unsluggable name, a name in an
@@ -70,7 +71,7 @@ final class InvalidTagException extends TagsException
 
     public static function invalidPosition(): self
     {
-        return new self(Messages::get('messages.invalid.position'));
+        return new self(Messages::get('messages.invalid.position', ['max' => TagAttributes::MAX_POSITION]));
     }
 
     public static function globalOnlyType(string $type): self

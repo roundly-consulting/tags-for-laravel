@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Tags\Http\Requests;
 
+use RoundlyConsulting\Tags\Support\TagAttributes;
 use RoundlyConsulting\Tags\Support\TagsConfig;
 use RoundlyConsulting\Translatable\Facades\Translatable;
 
@@ -24,7 +25,7 @@ final class StoreTagRequest extends TagsRequest
             'color' => ['nullable', 'string', 'max:7'],
             'icon' => ['nullable', 'string', 'max:64'],
             'parent' => ['nullable', 'string', 'max:64'],
-            'position' => ['nullable', 'integer', 'min:0'],
+            'position' => ['nullable', 'integer', 'min:0', 'max:'.TagAttributes::MAX_POSITION],
         ];
     }
 

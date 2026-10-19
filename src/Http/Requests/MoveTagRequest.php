@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Tags\Http\Requests;
 
+use RoundlyConsulting\Tags\Support\TagAttributes;
+
 /**
  * A move: `{parent: key|null, position}`.
  *
@@ -15,7 +17,7 @@ final class MoveTagRequest extends TagsRequest
     {
         return [
             'parent' => ['present', 'nullable', 'string', 'max:64'],
-            'position' => ['nullable', 'integer', 'min:0'],
+            'position' => ['nullable', 'integer', 'min:0', 'max:'.TagAttributes::MAX_POSITION],
         ];
     }
 

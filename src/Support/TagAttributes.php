@@ -14,6 +14,11 @@ use RoundlyConsulting\Translatable\Facades\Translatable;
  */
 final class TagAttributes
 {
+    /**
+     * The largest position the `position` column holds on every supported engine.
+     */
+    public const int MAX_POSITION = 2147483647;
+
     public static function color(?string $color): ?string
     {
         if ($color === null) {
@@ -120,7 +125,7 @@ final class TagAttributes
 
     public static function position(?int $position): ?int
     {
-        if ($position !== null && $position < 0) {
+        if ($position !== null && ($position < 0 || $position > self::MAX_POSITION)) {
             throw InvalidTagException::invalidPosition();
         }
 
