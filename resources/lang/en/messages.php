@@ -66,7 +66,7 @@ return [
     ],
 
     'read_only_relation' => [
-        'attach' => 'The tags relation is read-only: tag a record with attachTags() or Tags::attach().',
+        'attach' => 'The tags relation is read-only: tag a record with attachTags() or Tags::attach(). In a model factory, use afterCreating(fn ($model) => $model->attachTags(...)) instead of hasAttached().',
         'detach' => 'The tags relation is read-only: untag a record with detachTags() or clearTags() (Tags::detach(), Tags::clear()).',
         'sync' => 'The tags relation is read-only: replace a record\'s tags with syncTags() or Tags::sync().',
         'sync_without_detaching' => 'The tags relation is read-only: add tags with attachTags() or Tags::attach().',

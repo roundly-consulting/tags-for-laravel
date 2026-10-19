@@ -7,9 +7,19 @@ namespace RoundlyConsulting\Tags;
 use BackedEnum;
 use Closure;
 use Illuminate\Contracts\Container\Container;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
+use RoundlyConsulting\Tags\Actions\Internal\ClearDeletedTaggableAction;
+use RoundlyConsulting\Tags\Actions\Tagging\AttachTagsAction;
+use RoundlyConsulting\Tags\Actions\Tagging\ClearTagsAction;
+use RoundlyConsulting\Tags\Actions\Tagging\DetachTagsAction;
+use RoundlyConsulting\Tags\Actions\Tagging\SyncTagsAction;
+use RoundlyConsulting\Tags\Contracts\Taggable;
+use RoundlyConsulting\Tags\DataTransferObjects\TagChanges;
+use RoundlyConsulting\Tags\DataTransferObjects\TagSelection;
 use RoundlyConsulting\Tags\Enums\TagOperation;
 use RoundlyConsulting\Tags\Exceptions\TagNotFoundException;
+use RoundlyConsulting\Tags\Handles\TaggableTags;
 use RoundlyConsulting\Tags\Handles\TypeTags;
 use RoundlyConsulting\Tags\Models\Tag;
 use RoundlyConsulting\Tags\Support\KeyShape;
@@ -83,6 +93,95 @@ class TagsManager
     public function findOrFail(int|string $key): Tag
     {
         return $this->find($key) ?? throw TagNotFoundException::forKey($key);
+    }
+
+    /**
+     * One model's tags: `Tags::for($event)->attach(['live'], 'label')`.
+     */
+    public function for(Model&Taggable $taggable): TaggableTags
+    {
+        return new TaggableTags($this, $taggable);
+    }
+
+    /**
+     * Add tags to a model. Unknown names of a free-form type are created in the model's scope;
+     * going over a type's max throws and writes nothing.
+     *
+     * @param  mixed  $tags  Tag|int|string|iterable<Tag|int|string>|null
+     */
+    public function attach(Model&Taggable $taggable, mixed $tags, string|BackedEnum|null $type = null): TagChanges
+    {
+        $selection = TagSelection::of($tags, $type);
+
+        return $this->perform(
+            TagOperation::Attach,
+            AttachTagsAction::class,
+            static fn (AttachTagsAction $action): TagChanges => $action->execute($taggable, $selection),
+            ['taggable' => $taggable, 'tags' => $selection->tags, 'type' => $selection->type],
+        );
+    }
+
+    /**
+     * Remove tags from a model; names that name no tag are ignored.
+     *
+     * @param  mixed  $tags  Tag|int|string|iterable<Tag|int|string>|null
+     */
+    public function detach(Model&Taggable $taggable, mixed $tags, string|BackedEnum|null $type = null): TagChanges
+    {
+        $selection = TagSelection::of($tags, $type);
+
+        return $this->perform(
+            TagOperation::Detach,
+            DetachTagsAction::class,
+            static fn (DetachTagsAction $action): TagChanges => $action->execute($taggable, $selection),
+            ['taggable' => $taggable, 'tags' => $selection->tags, 'type' => $selection->type],
+        );
+    }
+
+    /**
+     * Make a model's tags of one type (the default type when none is given) exactly these.
+     *
+     * @param  mixed  $tags  Tag|int|string|iterable<Tag|int|string>|null
+     */
+    public function sync(Model&Taggable $taggable, mixed $tags, string|BackedEnum|null $type = null): TagChanges
+    {
+        $selection = TagSelection::of($tags, $type);
+
+        return $this->perform(
+            TagOperation::Sync,
+            SyncTagsAction::class,
+            static fn (SyncTagsAction $action): TagChanges => $action->execute($taggable, $selection),
+            ['taggable' => $taggable, 'tags' => $selection->tags, 'type' => $selection->type],
+        );
+    }
+
+    /**
+     * Remove every tag of a type from a model, or every tag of every type.
+     */
+    public function clear(Model&Taggable $taggable, string|BackedEnum|null $type = null): TagChanges
+    {
+        return $this->perform(
+            TagOperation::Clear,
+            ClearTagsAction::class,
+            static fn (ClearTagsAction $action): TagChanges => $action->execute($taggable, $type),
+            ['taggable' => $taggable, 'type' => $type === null ? null : TagTypeRegistry::nameOf($type)],
+        );
+    }
+
+    /**
+     * The deletion hook's clear of a taggable that is gone for good: no saved-model guard, no
+     * row to lock. Recorded as a clear.
+     *
+     * @internal
+     */
+    public function clearDeleted(Model&Taggable $taggable): TagChanges
+    {
+        return $this->perform(
+            TagOperation::Clear,
+            ClearDeletedTaggableAction::class,
+            static fn (ClearDeletedTaggableAction $action): TagChanges => $action->execute($taggable),
+            ['taggable' => $taggable, 'type' => null],
+        );
     }
 
     /**

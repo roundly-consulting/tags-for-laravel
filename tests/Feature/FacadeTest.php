@@ -14,7 +14,8 @@ use RoundlyConsulting\Tags\Types\TagTypeBuilder;
 it('pins the facade contract', function (): void {
     expect(Tags::class)
         ->toDocumentItsRoot()
-        ->toBeFakeable();
+        ->toBeFakeable()
+        ->toReachEveryAction(__DIR__.'/../../src/Actions');
 });
 
 it('resolves one manager from the container', function (): void {

@@ -4,13 +4,18 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Tags\Testing;
 
+use BackedEnum;
 use Closure;
 use Illuminate\Contracts\Container\Container;
+use Illuminate\Database\Eloquent\Model;
 use PHPUnit\Framework\Assert as PHPUnit;
+use RoundlyConsulting\Tags\Contracts\Taggable;
 use RoundlyConsulting\Tags\Enums\TagOperation;
 use RoundlyConsulting\Tags\Models\Tag;
+use RoundlyConsulting\Tags\Support\TagSlugs;
 use RoundlyConsulting\Tags\TagsManager;
 use RoundlyConsulting\Tags\Types\TagTypeRegistry;
+use RoundlyConsulting\Translatable\Facades\Translatable;
 
 /**
  * The test double `Tags::fake()` installs. It extends the manager, so injected managers keep
@@ -59,6 +64,171 @@ final class TagsFake extends TagsManager
             $this->recorded,
             sprintf('Expected no tag operations, but %d were recorded.', count($this->recorded)),
         );
+    }
+
+    // Tagging --------------------------------------------------------------------------
+
+    /**
+     * Tags were attached to `$model` (by an attach or a sync), optionally these tags (models, or
+     * slugs in the current locale) of this type.
+     *
+     * @param  list<Tag|string>|null  $tags
+     */
+    public function assertTagged(Model $model, ?array $tags = null, string|BackedEnum|null $type = null): void
+    {
+        $attached = $this->effects([TagOperation::Attach, TagOperation::Sync], $model, $type, attached: true);
+
+        PHPUnit::assertNotEmpty($attached, 'Expected tags to be attached to the model, but none were.');
+
+        if ($tags !== null) {
+            foreach ($tags as $tag) {
+                PHPUnit::assertTrue(
+                    self::contains($attached, $tag),
+                    'Expected the tag ['.self::describe($tag).'] to be attached to the model, but it was not.',
+                );
+            }
+        }
+    }
+
+    public function assertNothingTagged(): void
+    {
+        $count = count($this->effects([TagOperation::Attach, TagOperation::Sync], null, null, attached: true));
+
+        PHPUnit::assertSame(0, $count, "Expected no tags to be attached, but {$count} were.");
+    }
+
+    /**
+     * Tags were detached from `$model` (by a detach, a sync or a clear).
+     *
+     * @param  list<Tag|string>|null  $tags
+     */
+    public function assertUntagged(Model $model, ?array $tags = null, string|BackedEnum|null $type = null): void
+    {
+        $detached = $this->effects([TagOperation::Detach, TagOperation::Sync, TagOperation::Clear], $model, $type, attached: false);
+
+        PHPUnit::assertNotEmpty($detached, 'Expected tags to be detached from the model, but none were.');
+
+        if ($tags !== null) {
+            foreach ($tags as $tag) {
+                PHPUnit::assertTrue(
+                    self::contains($detached, $tag),
+                    'Expected the tag ['.self::describe($tag).'] to be detached from the model, but it was not.',
+                );
+            }
+        }
+    }
+
+    public function assertNothingUntagged(): void
+    {
+        $count = count($this->effects([TagOperation::Detach, TagOperation::Sync, TagOperation::Clear], null, null, attached: false));
+
+        PHPUnit::assertSame(0, $count, "Expected no tags to be detached, but {$count} were.");
+    }
+
+    /**
+     * `$model`'s tags of `$type` were synced, optionally to exactly these tags.
+     *
+     * @param  list<Tag|string>|null  $tags
+     */
+    public function assertSynced(Model $model, string|BackedEnum $type, ?array $tags = null): void
+    {
+        $name = TagTypeRegistry::nameOf($type);
+        $syncs = array_filter(
+            $this->recorded(TagOperation::Sync),
+            static fn (RecordedTagOperation $recorded): bool => $recorded->concerns($model)
+                && ($recorded->context['type'] ?? $recorded->changesType()) === $name,
+        );
+
+        PHPUnit::assertNotEmpty($syncs, "Expected the model's [{$name}] tags to be synced, but they were not.");
+
+        if ($tags !== null && $model instanceof Taggable) {
+            $current = array_values($this->for($model)->of($name)->all());
+
+            PHPUnit::assertCount(count($tags), $current, "Expected the model's [{$name}] tags to be synced to ".count($tags).' tag(s), but it carries '.count($current).'.');
+
+            foreach ($tags as $tag) {
+                PHPUnit::assertTrue(self::contains($current, $tag), 'Expected the tag ['.self::describe($tag).'] after the sync, but it is not there.');
+            }
+        }
+    }
+
+    public function assertNothingSynced(): void
+    {
+        $count = count($this->recorded(TagOperation::Sync));
+
+        PHPUnit::assertSame(0, $count, "Expected no tags to be synced, but {$count} syncs were recorded.");
+    }
+
+    /**
+     * `$model`'s tags were cleared: of `$type`, or of any type when null. The deletion hook's
+     * clear counts.
+     */
+    public function assertCleared(Model $model, string|BackedEnum|null $type = null): void
+    {
+        $name = $type === null ? null : TagTypeRegistry::nameOf($type);
+        $clears = array_filter(
+            $this->recorded(TagOperation::Clear),
+            static fn (RecordedTagOperation $recorded): bool => $recorded->concerns($model)
+                && ($name === null || ($recorded->context['type'] ?? null) === $name),
+        );
+
+        PHPUnit::assertNotEmpty($clears, $name === null
+            ? "Expected the model's tags to be cleared, but they were not."
+            : "Expected the model's [{$name}] tags to be cleared, but they were not.");
+    }
+
+    public function assertNothingCleared(): void
+    {
+        $count = count($this->recorded(TagOperation::Clear));
+
+        PHPUnit::assertSame(0, $count, "Expected no tags to be cleared, but {$count} clears were recorded.");
+    }
+
+    /**
+     * The tags attached (or detached) by the recorded operations of these kinds.
+     *
+     * @param  list<TagOperation>  $operations
+     * @return list<Tag>
+     */
+    private function effects(array $operations, ?Model $model, string|BackedEnum|null $type, bool $attached): array
+    {
+        $name = $type === null ? null : TagTypeRegistry::nameOf($type);
+        $tags = [];
+
+        foreach ($this->recorded as $recorded) {
+            $changes = $recorded->changes();
+
+            if ($changes === null || ! in_array($recorded->operation, $operations, true) || ($model !== null && ! $recorded->concerns($model))) {
+                continue;
+            }
+
+            if ($name !== null) {
+                $changes = $changes->ofType($name);
+            }
+
+            $tags = [...$tags, ...($attached ? $changes->attached : $changes->detached)];
+        }
+
+        return $tags;
+    }
+
+    /**
+     * @param  list<Tag>  $tags
+     */
+    private static function contains(array $tags, Tag|string $expected): bool
+    {
+        foreach ($tags as $tag) {
+            if ($expected instanceof Tag ? $tag->is($expected) : $tag->slug === TagSlugs::slugify($expected, Translatable::currentLocale())) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function describe(Tag|string $tag): string
+    {
+        return $tag instanceof Tag ? (string) $tag->slug : $tag;
     }
 
     // Catalog --------------------------------------------------------------------------

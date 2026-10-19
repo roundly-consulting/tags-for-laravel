@@ -66,7 +66,7 @@ return [
     ],
 
     'read_only_relation' => [
-        'attach' => 'Vzťah tags je len na čítanie: štítky pridajte cez attachTags() alebo Tags::attach().',
+        'attach' => 'Vzťah tags je len na čítanie: štítky pridajte cez attachTags() alebo Tags::attach(). V továrni modelu použite afterCreating(fn ($model) => $model->attachTags(...)) namiesto hasAttached().',
         'detach' => 'Vzťah tags je len na čítanie: štítky odoberte cez detachTags() alebo clearTags() (Tags::detach(), Tags::clear()).',
         'sync' => 'Vzťah tags je len na čítanie: štítky záznamu nahraďte cez syncTags() alebo Tags::sync().',
         'sync_without_detaching' => 'Vzťah tags je len na čítanie: štítky pridajte cez attachTags() alebo Tags::attach().',
