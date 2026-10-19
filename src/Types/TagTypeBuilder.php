@@ -35,6 +35,12 @@ final class TagTypeBuilder
 
     private ?bool $private = null;
 
+    /**
+     * The shape the definition declared, before extends and overrides: it decides the curated
+     * default, so a host that flips the shape does not change how the type creates tags.
+     */
+    private ?bool $declaredHierarchical = null;
+
     private bool $frozen = false;
 
     /** @var list<string> */
@@ -110,8 +116,9 @@ final class TagTypeBuilder
     }
 
     /**
-     * Whether tagging by a string may create a missing tag (curated: never). Flat types default
-     * to free-form, hierarchical types to curated.
+     * Whether tagging by a string may create a missing tag (curated: never). Unset, it follows
+     * the shape the definition declares: flat types are free-form, hierarchical types curated —
+     * an extend or override that changes the shape later keeps that default.
      */
     public function curated(bool $on = true): self
     {
@@ -217,6 +224,18 @@ final class TagTypeBuilder
     }
 
     /**
+     * Record the shape the definition declared, before any extend or override applies.
+     *
+     * @internal
+     */
+    public function settleDefinition(): self
+    {
+        $this->declaredHierarchical = $this->hierarchical ?? false;
+
+        return $this;
+    }
+
+    /**
      * @internal
      */
     public function noteExtension(string $origin): void
@@ -266,7 +285,7 @@ final class TagTypeBuilder
             throw InvalidTagTypeException::rule($this->name, 'max below 1');
         }
 
-        $curated = $this->curated ?? $hierarchical;
+        $curated = $this->curated ?? $this->declaredHierarchical ?? $hierarchical;
         $stableSlugs = $this->stableSlugs ?? false;
 
         if ($stableSlugs && ! $curated) {

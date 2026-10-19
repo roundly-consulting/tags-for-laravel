@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use RoundlyConsulting\Tags\Enums\TypeSource;
 use RoundlyConsulting\Tags\Exceptions\InvalidTagTypeException;
+use RoundlyConsulting\Tags\Exceptions\TagNotFoundException;
 use RoundlyConsulting\Tags\Exceptions\TagTypeAlreadyDefinedException;
 use RoundlyConsulting\Tags\Exceptions\UnknownTagTypeException;
 use RoundlyConsulting\Tags\Facades\Tags;
@@ -256,6 +257,42 @@ it('turns a tree into a flat type through an override', function (): void {
     $type = app(TagTypeRegistry::class)->resolve('genre');
 
     expect($type->hierarchical)->toBeFalse()->and($type->maxDepth)->toBeNull();
+});
+
+// §4.7: a host that flips a package's tree to flat must not change how the type creates tags —
+// the curated default follows the shape the definition declared, not the overridden one.
+test('a_flat_override_keeps_a_stable_category_usable', function (): void {
+    config()->set('tags.overrides', ['events:category' => ['hierarchical' => false]]);
+    Tags::define('events:category')->hierarchical(maxDepth: 3)->single()->stableSlugs();
+
+    $music = Tags::type('events:category')->make('Music')->create();
+    $type = Tags::type('events:category')->definition();
+
+    expect($music->type)->toBe('events:category')
+        ->and($type->hierarchical)->toBeFalse()
+        ->and($type->curated)->toBeTrue()
+        ->and($type->stableSlugs)->toBeTrue();
+});
+
+test('a_flat_override_keeps_a_curated_category_curated', function (string $via): void {
+    $via === 'override'
+        ? config()->set('tags.overrides', ['events:category' => ['hierarchical' => false]])
+        : Tags::extend('events:category', static fn (TagTypeBuilder $type) => $type->flat());
+    Tags::define('events:category')->hierarchical()->single();
+    $article = Article::query()->create(['title' => 'A']);
+
+    expect(fn () => $article->syncTags('Anything a user types', 'events:category'))->toThrow(TagNotFoundException::class)
+        ->and(Tags::type('events:category')->all())->toHaveCount(0);
+})->with(['override', 'extend']);
+
+test('a_tree_override_keeps_a_free_form_type_free_form', function (): void {
+    config()->set('tags.overrides', ['tag' => ['hierarchical' => true], 'skill' => ['hierarchical' => false]]);
+    config()->set('tags.types', ['skill' => ['hierarchical' => true]]);
+
+    expect(Tags::type('tag')->definition()->curated)->toBeFalse()
+        ->and(Tags::type('tag')->definition()->hierarchical)->toBeTrue()
+        ->and(Tags::type('skill')->definition()->curated)->toBeTrue()
+        ->and(Tags::type('skill')->definition()->hierarchical)->toBeFalse();
 });
 
 test('label_maps_drop_unsupported_locales', function (): void {

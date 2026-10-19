@@ -245,6 +245,8 @@ final class TagTypeRegistry
             $builder = new TagTypeBuilder($name, TypeSource::Default, null);
         }
 
+        $builder->settleDefinition();
+
         foreach ($this->extensions[$name] ?? [] as $index => $extension) {
             $extension($builder);
             $builder->noteExtension('extend #'.($index + 1));
