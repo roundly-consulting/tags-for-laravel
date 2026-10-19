@@ -12,6 +12,10 @@ parameters:
         - tests/Fixtures/Models/FixtureKeys.php
         - tests/Fixtures/Models/Team.php
         - tests/Fixtures/Models/ArticleTagType.php
+    excludePaths:
+        # Pest's expect()->extend() closures bind $this to the expectation at runtime; the matchers
+        # are exercised by the suite.
+        - src/Testing/TagExpectations.php
     # This package ships its own config/ dir; env() is correct there.
     configDirectories:
         - config

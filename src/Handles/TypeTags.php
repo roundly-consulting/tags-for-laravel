@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Tags\Handles;
 
+use Closure;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
@@ -26,6 +27,8 @@ use RoundlyConsulting\Tags\Exceptions\TagScopeMismatchException;
 use RoundlyConsulting\Tags\Exceptions\TagTypeMismatchException;
 use RoundlyConsulting\Tags\Models\Tag;
 use RoundlyConsulting\Tags\Queries\BuildTagTree;
+use RoundlyConsulting\Tags\Queries\PopularTags;
+use RoundlyConsulting\Tags\Queries\SuggestTags;
 use RoundlyConsulting\Tags\Support\KeyShape;
 use RoundlyConsulting\Tags\Support\ScopeKey;
 use RoundlyConsulting\Tags\Support\TagLookup;
@@ -284,6 +287,29 @@ final readonly class TypeTags
         }
 
         return $this->manager->container()->make(BuildTagTree::class)->build($this->type, $this->readScopeKeys(), $root);
+    }
+
+    /**
+     * Autocomplete: slug-prefix matches in every locale first, then name matches, by usage.
+     *
+     * @return Collection<int, Tag>
+     */
+    public function suggest(string $term, ?int $limit = null): Collection
+    {
+        return $this->manager->container()->make(SuggestTags::class)->suggest($this->type, $this->readScopeKeys(), $term, $limit);
+    }
+
+    /**
+     * The most used tags; `$on` counts one taggable class live, `$where` restricts that count to
+     * the taggables a consumer may show.
+     *
+     * @param  class-string<Model>|null  $on
+     * @param  (Closure(Builder<Model>): mixed)|null  $where
+     * @return Collection<int, Tag>
+     */
+    public function popular(?int $limit = null, ?string $on = null, ?Closure $where = null): Collection
+    {
+        return $this->manager->container()->make(PopularTags::class)->popular($this->type, $this->readScopeKeys(), $limit, $on, $where);
     }
 
     /**

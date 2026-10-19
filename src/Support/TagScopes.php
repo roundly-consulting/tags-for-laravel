@@ -34,9 +34,9 @@ final class TagScopes
      *
      * @param  Builder<covariant Model>  $query
      */
-    public static function any(Builder $query, mixed $tags, string|BackedEnum|null $type, bool $descendants = false, ?Model $within = null): void
+    public static function any(Builder $query, mixed $tags, string|BackedEnum|null $type, bool $descendants = false, ?Model $within = null, bool $byId = false): void
     {
-        $groups = self::groups($tags, $type, $descendants, $within);
+        $groups = self::groups($tags, $type, $descendants, $within, $byId);
         $keys = $groups === [] ? [] : array_values(array_unique(array_merge(...$groups)));
 
         if ($keys === []) {
@@ -54,9 +54,9 @@ final class TagScopes
      *
      * @param  Builder<covariant Model>  $query
      */
-    public static function all(Builder $query, mixed $tags, string|BackedEnum|null $type, bool $descendants = false, ?Model $within = null): void
+    public static function all(Builder $query, mixed $tags, string|BackedEnum|null $type, bool $descendants = false, ?Model $within = null, bool $byId = false): void
     {
-        $groups = self::groups($tags, $type, $descendants, $within);
+        $groups = self::groups($tags, $type, $descendants, $within, $byId);
 
         if ($groups === []) {
             return;
@@ -79,7 +79,7 @@ final class TagScopes
      *
      * @param  Builder<covariant Model>  $query
      */
-    public static function none(Builder $query, mixed $tags, string|BackedEnum|null $type, bool $descendants = false, ?Model $within = null): void
+    public static function none(Builder $query, mixed $tags, string|BackedEnum|null $type, bool $descendants = false, ?Model $within = null, bool $byId = false): void
     {
         $model = $query->getModel();
 
@@ -95,7 +95,7 @@ final class TagScopes
             return;
         }
 
-        $groups = self::groups($tags, $type, $descendants, $within);
+        $groups = self::groups($tags, $type, $descendants, $within, $byId);
         $keys = $groups === [] ? [] : array_values(array_unique(array_merge(...$groups)));
 
         if ($keys !== []) {
@@ -120,11 +120,12 @@ final class TagScopes
 
     /**
      * The tag keys each input names (several when a name names tags in several scopes, plus
-     * descendants), in input order.
+     * descendants), in input order. With `$byId`, strings are primary keys (a uuid, or a number
+     * from a query string), never names.
      *
      * @return list<list<string>>
      */
-    public static function groups(mixed $tags, string|BackedEnum|null $type, bool $descendants, ?Model $within): array
+    public static function groups(mixed $tags, string|BackedEnum|null $type, bool $descendants, ?Model $within, bool $byId = false): array
     {
         $registry = app(TagTypeRegistry::class);
         $selection = TagSelection::of($tags);
@@ -141,7 +142,7 @@ final class TagScopes
                 }
 
                 $byInput[$index] = [$input];
-            } elseif (is_int($input)) {
+            } elseif (is_int($input) || $byId) {
                 $keys[$index] = $input;
             } else {
                 $strings[$index] = $input;
@@ -150,7 +151,17 @@ final class TagScopes
 
         if ($keys !== []) {
             $valid = array_values(array_filter($keys, KeyShape::isTagKey(...)));
-            $loaded = TagModel::query()->whereKey($valid)->get()
+            $query = TagModel::query()->whereKey($valid);
+
+            if ($explicit !== null) {
+                $query->where('type', $explicit->name);
+            }
+
+            if ($within !== null && $explicit?->globalOnly !== true) {
+                $query->whereIn('scope_key', [ScopeKey::for($within), ScopeKey::GLOBAL]);
+            }
+
+            $loaded = $query->get()
                 ->keyBy(static fn (Tag $tag): string => (string) $tag->getKey());
 
             foreach ($keys as $index => $key) {
