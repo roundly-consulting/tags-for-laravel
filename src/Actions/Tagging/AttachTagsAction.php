@@ -23,6 +23,7 @@ use RoundlyConsulting\Tags\Support\TagName;
 use RoundlyConsulting\Tags\Support\TagStore;
 use RoundlyConsulting\Tags\Support\TagTransaction;
 use RoundlyConsulting\Tags\Types\TagType;
+use RoundlyConsulting\Tags\Types\TagTypeRegistry;
 
 /**
  * Add tags to a model: the current tags plus the resolved ones. Unknown names of a free-form type
@@ -32,6 +33,7 @@ use RoundlyConsulting\Tags\Types\TagType;
 final readonly class AttachTagsAction
 {
     public function __construct(
+        private TagTypeRegistry $registry,
         private ResolveTagsAction $resolve,
         private ApplyTagChangesAction $apply,
     ) {}
@@ -46,8 +48,12 @@ final readonly class AttachTagsAction
 
         $resolve = $this->resolve;
         $apply = $this->apply;
+        $names = Taggings::typeOfNames($selection, $this->registry);
 
-        return TagTransaction::run(static function () use ($taggable, $selection, $resolve, $apply): TagChanges {
+        return TagTransaction::run(static function () use ($taggable, $selection, $resolve, $apply, $names): TagChanges {
+            // A name may bring a tag of a tree back: its tree lock comes before the model's row.
+            Taggings::lockTreeForNames($taggable, $names);
+
             // The model's row first: every later read of this call sees what the writer before it
             // committed, and the max is checked once, before any tag is created.
             Taggings::lock($taggable);
@@ -145,7 +151,7 @@ final readonly class AttachTagsAction
             $scope = Taggings::creationScope($taggable, $type);
 
             foreach ($names as $map) {
-                $stored = TagStore::store(new TagDraft($type, $scope, ScopeKey::for($scope), $map), TagName::lookup($map));
+                $stored = TagStore::store(new TagDraft($type, $scope, ScopeKey::for($scope), $map, orphanAsRoot: true), TagName::lookup($map));
 
                 if ($stored->created) {
                     event(new TagCreated($stored->tag));

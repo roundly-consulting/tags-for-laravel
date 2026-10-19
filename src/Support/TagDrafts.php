@@ -21,7 +21,10 @@ use RoundlyConsulting\Tags\Types\TagType;
  */
 final class TagDrafts
 {
-    public static function fromData(TagType $type, TagData $data, ?Model $scope): TagDraft
+    /**
+     * @param  bool  $replaces  a create: a deleted tag the name brings back takes these attributes
+     */
+    public static function fromData(TagType $type, TagData $data, ?Model $scope, bool $replaces = false): TagDraft
     {
         if ($scope !== null && $type->globalOnly) {
             throw InvalidTagException::globalOnlyType($type->name);
@@ -34,8 +37,11 @@ final class TagDrafts
             throw InvalidTagException::manualSlugOnFreeForm($type->name);
         }
 
-        if ($data->parent !== null) {
-            self::ensureParent($type, $scopeKey, $data->parent);
+        $placed = ! $data->parent instanceof NotGiven;
+        $parent = $placed ? $data->parent : null;
+
+        if ($parent !== null) {
+            self::ensureParent($type, $scopeKey, $parent);
         }
 
         return new TagDraft(
@@ -47,8 +53,10 @@ final class TagDrafts
             slug: $slug,
             color: TagAttributes::color($data->color),
             icon: TagAttributes::icon($data->icon),
-            parent: $data->parent,
+            parent: $parent,
             position: TagAttributes::position($data->position),
+            placed: $placed,
+            replaces: $replaces,
         );
     }
 
@@ -116,6 +124,9 @@ final class TagDrafts
             icon: $draft->icon,
             parent: $parent,
             position: $draft->position,
+            placed: $draft->placed,
+            replaces: $draft->replaces,
+            orphanAsRoot: $draft->orphanAsRoot,
         );
     }
 }

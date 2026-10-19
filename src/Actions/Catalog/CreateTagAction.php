@@ -19,8 +19,8 @@ use RoundlyConsulting\Tags\Types\TagTypeRegistry;
 /**
  * Create a tag of a type, global or in a scope. A name a live tag of the type and scope already
  * holds (in any locale) is a duplicate, never "rock-2"; a name a deleted tag holds restores that
- * tag with the new attributes. A child, or a tag at an explicit position, is created under the
- * tree lock.
+ * tag with the new attributes — under the given parent, or where it was when none is given. A
+ * tag of a tree is created under the tree lock.
  */
 final readonly class CreateTagAction
 {
@@ -30,7 +30,7 @@ final readonly class CreateTagAction
 
     public function execute(string|BackedEnum|TagType $type, TagData $data, ?Model $scope = null): Tag
     {
-        $draft = TagDrafts::fromData($this->registry->resolve($type), $data, $scope);
+        $draft = TagDrafts::fromData($this->registry->resolve($type), $data, $scope, replaces: true);
 
         return TagTransaction::run(static function () use ($draft): Tag {
             $stored = TagStore::store(TagDrafts::underLock($draft));

@@ -47,7 +47,11 @@ final readonly class SyncTagsAction
         $resolve = $this->resolve;
         $apply = $this->apply;
 
-        return TagTransaction::run(static function () use ($taggable, $selection, $type, $resolve, $apply): TagChanges {
+        $names = Taggings::typeOfNames($selection, $this->registry);
+
+        return TagTransaction::run(static function () use ($taggable, $selection, $type, $resolve, $apply, $names): TagChanges {
+            // A name may bring a tag of a tree back: its tree lock comes before the model's row.
+            Taggings::lockTreeForNames($taggable, $names);
             Taggings::lock($taggable);
 
             $resolved = $resolve->execute($taggable, $selection, strict: true);
@@ -62,7 +66,7 @@ final readonly class SyncTagsAction
             $created = [];
 
             foreach ($missing as $map) {
-                $stored = TagStore::store(new TagDraft($type, $scope, ScopeKey::for($scope), $map), TagName::lookup($map));
+                $stored = TagStore::store(new TagDraft($type, $scope, ScopeKey::for($scope), $map, orphanAsRoot: true), TagName::lookup($map));
 
                 if ($stored->created) {
                     event(new TagCreated($stored->tag));

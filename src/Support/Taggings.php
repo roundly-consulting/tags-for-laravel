@@ -7,10 +7,12 @@ namespace RoundlyConsulting\Tags\Support;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use RoundlyConsulting\Tags\Contracts\Taggable;
+use RoundlyConsulting\Tags\DataTransferObjects\TagSelection;
 use RoundlyConsulting\Tags\Exceptions\UnsavedTaggableException;
 use RoundlyConsulting\Tags\Models\Tag;
 use RoundlyConsulting\Tags\Models\Tagging;
 use RoundlyConsulting\Tags\Types\TagType;
+use RoundlyConsulting\Tags\Types\TagTypeRegistry;
 
 /**
  * The taggable side of a tagging write: the model's candidate scopes, its lock and its current
@@ -51,6 +53,32 @@ final class Taggings
     public static function creationScope(Model&Taggable $taggable, TagType $type): ?Model
     {
         return $type->globalOnly ? null : $taggable->tagScope();
+    }
+
+    /**
+     * The type a tagging call's names are in, or null when it names no tag by name (or there is
+     * no default type: resolution reports that).
+     */
+    public static function typeOfNames(TagSelection $selection, TagTypeRegistry $registry): ?TagType
+    {
+        foreach ($selection->tags as $tag) {
+            if (is_string($tag)) {
+                return $selection->type === null ? $registry->defaultType() : $registry->resolve($selection->type);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Before the model's row: the tree lock of a free-form tree type whose names this write may
+     * create or bring back — the lock order every tree write takes (tree, then rows).
+     */
+    public static function lockTreeForNames(Model&Taggable $taggable, ?TagType $type): void
+    {
+        if ($type !== null && $type->hierarchical && ! $type->curated) {
+            TreeLock::lock($type->name, ScopeKey::for(self::creationScope($taggable, $type)));
+        }
     }
 
     /**

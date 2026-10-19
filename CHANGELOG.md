@@ -23,7 +23,9 @@ Initial public release.
   scope answers exactly like a missing one, in every verb and in `TagsRule`.
 - Idempotent seeding: `Tags::type($type)->make('Jazz')->under($music)->findOrCreate()` returns an
   existing tag unchanged or creates it with every attribute; `TypeTags::findTrashed()` finds a
-  deleted tag of exactly the handle's scope by name, slug or key, to restore it.
+  deleted tag of exactly the handle's scope by name, slug or key, to restore it. A deleted tag's
+  name stays reserved: using it again brings the tag back as it was, in its place in the tree —
+  only `create()` gives it new attributes, and only a given parent moves it.
 - `HasTags` with `attachTags()`, `detachTags()`, `syncTags()`, `clearTags()`, type-aware reads
   that never N+1, the `withAnyTags`, `withAllTags`, `withoutTags` and `withTagsOf` scopes (with
   descendants), and a read-only `tags()` relation.

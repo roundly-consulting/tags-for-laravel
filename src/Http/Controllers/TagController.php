@@ -84,7 +84,7 @@ final class TagController extends Controller
             slug: self::map($validated['slug'] ?? []),
             color: self::string($validated['color'] ?? null),
             icon: self::string($validated['icon'] ?? null),
-            parent: $this->bodyTag($request, $tagType, $validated['parent'] ?? null),
+            parent: array_key_exists('parent', $validated) ? $this->bodyTag($request, $tagType, $validated['parent']) : new NotGiven,
             position: self::integer($validated['position'] ?? null),
         ));
 

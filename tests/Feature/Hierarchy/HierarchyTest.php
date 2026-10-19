@@ -241,6 +241,56 @@ test('restore_recomputes_the_path', function (): void {
         ->and($restored->depth)->toBe(3);
 });
 
+// F-1: a move counts only the live subtree, so it may carry a deleted descendant below the cap;
+// that descendant then never comes back deeper than the type allows.
+test('restore_respects_the_depth_cap', function (): void {
+    Tags::define('cat')->hierarchical(maxDepth: 2);
+    $cats = Tags::type('cat');
+    $a = $cats->make('A')->create();
+    $b = $cats->make('B')->under($a)->create();
+    $cats->delete($b);
+    $c = $cats->make('C')->create();
+
+    $moved = $cats->move($a->fresh(), $c);
+
+    expect($moved->depth)->toBe(2)
+        ->and(Tag::query()->withTrashed()->findOrFail($b->getKey())->depth)->toBe(3)
+        ->and(fn () => $cats->restore($b->fresh() ?? $b))->toThrow(InvalidTagHierarchyException::class, 'levels deep')
+        ->and(Tag::query()->withTrashed()->findOrFail($b->getKey())->trashed())->toBeTrue();
+
+    // Back within the cap, it restores.
+    $cats->move($a->fresh(), null);
+
+    expect($cats->restore(Tag::query()->withTrashed()->findOrFail($b->getKey()))->depth)->toBe(2);
+});
+
+test('restoring_a_deleted_subtree_top_down_respects_the_cap', function (): void {
+    Tags::define('cat')->hierarchical(maxDepth: 2);
+    $cats = Tags::type('cat');
+    $a = $cats->make('A')->create();
+    $b = $cats->make('B')->under($a)->create();
+    $cats->delete($a, TagChildren::Delete);
+    $c = $cats->make('C')->create();
+
+    $restoredA = $cats->restore(Tag::query()->withTrashed()->findOrFail($a->getKey()));
+    $cats->move($restoredA, $c);
+
+    expect(fn () => $cats->restore(Tag::query()->withTrashed()->findOrFail($b->getKey())))->toThrow(InvalidTagHierarchyException::class, 'levels deep');
+});
+
+// A plain `$tag->delete()` leaves live children below the deleted tag; its restore counts them.
+test('restore_counts_the_live_subtree_against_the_cap', function (): void {
+    $this->music->delete();
+    Tags::extend('genre', static fn ($type) => $type->hierarchical(maxDepth: 2));
+
+    expect(fn () => Tags::type('genre')->restore(Tag::query()->withTrashed()->findOrFail($this->music->getKey())))
+        ->toThrow(InvalidTagHierarchyException::class, 'levels deep');
+
+    Tags::extend('genre', static fn ($type) => $type->hierarchical(maxDepth: 3));
+
+    expect(Tags::type('genre')->restore(Tag::query()->withTrashed()->findOrFail($this->music->getKey()))->trashed())->toBeFalse();
+});
+
 test('free_form_hierarchical_types_create_roots', function (): void {
     Tags::define('topic')->hierarchical()->freeForm();
     $article = Article::query()->create();

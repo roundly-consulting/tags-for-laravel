@@ -7,6 +7,7 @@ namespace RoundlyConsulting\Tags\Builders;
 use RoundlyConsulting\Tags\DataTransferObjects\TagData;
 use RoundlyConsulting\Tags\Handles\TypeTags;
 use RoundlyConsulting\Tags\Models\Tag;
+use RoundlyConsulting\Tags\Support\NotGiven;
 use RoundlyConsulting\Tags\Support\TagAttributes;
 use RoundlyConsulting\Tags\Support\TagDrafts;
 
@@ -27,7 +28,7 @@ final class TagBuilder
 
     private ?string $icon = null;
 
-    private ?Tag $parent = null;
+    private NotGiven|Tag|null $parent;
 
     private ?int $position = null;
 
@@ -37,7 +38,9 @@ final class TagBuilder
     public function __construct(
         private readonly TypeTags $handle,
         private readonly string|array $name,
-    ) {}
+    ) {
+        $this->parent = new NotGiven;
+    }
 
     /**
      * @param  string|array<string, string>  $description  a string is the current locale
@@ -77,6 +80,10 @@ final class TagBuilder
         return $this;
     }
 
+    /**
+     * The parent (null: a root). Not called, a new tag is a root, and a deleted tag the name
+     * brings back stays where it was.
+     */
     public function under(?Tag $parent): self
     {
         if ($parent !== null) {
