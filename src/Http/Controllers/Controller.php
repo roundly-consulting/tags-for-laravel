@@ -130,6 +130,19 @@ abstract class Controller
     }
 
     /**
+     * A validated `integer` field: a JSON number, or the digit string a form post (or a JSON
+     * string) carries — the rule accepts both.
+     */
+    protected static function integer(mixed $value): ?int
+    {
+        if (is_int($value)) {
+            return $value;
+        }
+
+        return is_string($value) && preg_match('/^[0-9]{1,9}$/D', $value) === 1 ? (int) $value : null;
+    }
+
+    /**
      * Remember what resources need: the request's scope and the translations switch.
      */
     protected function share(TagsRequest $request, ?Model $scope, bool $translations = false): void

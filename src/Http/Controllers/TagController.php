@@ -82,7 +82,7 @@ final class TagController extends Controller
             color: self::string($validated['color'] ?? null),
             icon: self::string($validated['icon'] ?? null),
             parent: $this->bodyTag($request, $tagType, $validated['parent'] ?? null),
-            position: is_int($validated['position'] ?? null) ? $validated['position'] : null,
+            position: self::integer($validated['position'] ?? null),
         ));
 
         $this->share($request, $scope);

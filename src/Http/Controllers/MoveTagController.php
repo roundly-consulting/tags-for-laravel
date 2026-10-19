@@ -27,7 +27,7 @@ final class MoveTagController extends Controller
         $moved = $handle->move(
             $this->pathTag($request, $handle, $tag, write: true),
             $this->bodyTag($request, $tagType, $validated['parent'] ?? null),
-            is_int($validated['position'] ?? null) ? $validated['position'] : null,
+            self::integer($validated['position'] ?? null),
         );
 
         $this->share($request, $scope);

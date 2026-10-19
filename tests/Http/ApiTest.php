@@ -184,6 +184,27 @@ test('restore_after_a_direct_delete_starts_clean_over_the_api', function (): voi
     expect($article->tagsOf('label')->pluck('slug')->all())->toBe(['outdoor']);
 });
 
+// A form post — or a JSON string — carries the position as "0"; the `integer` rule accepts it.
+test('form_encoded_position_is_honoured', function (): void {
+    apiUser(admin: true);
+    Tags::type('genre')->make('Rock')->create();
+    $form = ['Accept' => 'application/json'];
+
+    $this->post('/api/tags/genre', ['name' => ['en' => 'First'], 'position' => '0'], $form)
+        ->assertCreated()
+        ->assertJsonPath('data.position', 0);
+
+    $this->post("/api/tags/genre/{$this->jazz->getKey()}/move", ['parent' => '', 'position' => '0'], $form)
+        ->assertOk()
+        ->assertJsonPath('data.position', 0);
+
+    $this->postJson('/api/tags/genre', ['name' => ['en' => 'Second'], 'position' => '1'])
+        ->assertCreated()
+        ->assertJsonPath('data.position', 1);
+
+    expect(Tags::type('genre')->roots()->pluck('slug')->all())->toBe(['jazz', 'second', 'first', 'music', 'rock']);
+});
+
 test('move_and_store_accept_an_integer_parent', function (): void {
     apiUser(admin: true);
 
