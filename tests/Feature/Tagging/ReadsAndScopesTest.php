@@ -148,6 +148,26 @@ it('matches models, keys and tags of every scope unless narrowed', function (): 
         ->and(fn () => ScopedArticle::query()->withTagsOf('nope')->get())->toThrow(UnknownTagTypeException::class);
 })->skip(fn (): bool => config('tags.primary_key_type') !== 'bigint', 'int keys');
 
+// §4.11: a string matches in every scope of the type — each scope by its own first chain locale
+// with a match, never one locale picked for all scopes together.
+test('strings_match_each_scopes_own_tag', function (): void {
+    $acme = Team::query()->create(['name' => 'Acme']);
+    $globex = Team::query()->create(['name' => 'Globex']);
+    $a = ScopedArticle::query()->create(['title' => 'a', 'team_id' => $acme->getKey()]);
+    $g = ScopedArticle::query()->create(['title' => 'g', 'team_id' => $globex->getKey()]);
+    $n = ScopedArticle::query()->create(['title' => 'n']);
+    $a->attachTags(Tags::type('label')->within($acme)->make(['en' => 'Rock'])->create(), 'label');
+    $g->attachTags(Tags::type('label')->within($globex)->make(['sk' => 'Rock'])->create(), 'label');
+    $n->attachTags(Tags::type('label')->make(['sk' => 'Rock'])->create(), 'label');
+    $titles = static fn ($query): array => $query->orderBy('title')->pluck('title')->all();
+
+    expect($titles(ScopedArticle::query()->withAnyTags('rock', 'label')))->toBe(['a', 'g', 'n'])
+        ->and($titles(ScopedArticle::query()->withAllTags('rock', 'label')))->toBe(['a', 'g', 'n'])
+        ->and($titles(ScopedArticle::query()->withoutTags('rock', 'label')))->toBe([])
+        ->and($titles(ScopedArticle::query()->withAnyTags('rock', 'label', within: $acme)))->toBe(['a', 'n'])
+        ->and($titles(ScopedArticle::query()->withAnyTags('rock', 'label', within: $globex)))->toBe(['g', 'n']);
+});
+
 test('trait_has_no_name_collisions', function (): void {
     $page = TwoTraitsArticle::query()->create(['name' => ['en' => 'Home', 'sk' => 'Domov']]);
 

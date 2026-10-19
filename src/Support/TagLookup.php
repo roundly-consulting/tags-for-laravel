@@ -50,8 +50,9 @@ final class TagLookup
     }
 
     /**
-     * Every live tag a string names at the first chain locale with any match (several when the
-     * string names a tag in several scopes). Null scope keys mean every scope.
+     * Every live tag a string names, in every scope: in each scope, at that scope's first chain
+     * locale with any match — one scope naming the tag only in a later locale still matches.
+     * Null scope keys mean every scope.
      *
      * @param  list<string>|null  $scopeKeys
      * @param  list<string>  $inputs
@@ -65,18 +66,27 @@ final class TagLookup
             return [];
         }
 
-        $tags = self::query($type, $scopeKeys, $candidates, $chain)->get();
+        $byScope = self::query($type, $scopeKeys, $candidates, $chain)->get()->groupBy('scope_key');
         $found = [];
 
         foreach ($candidates as $input => $slugs) {
-            foreach ($chain as $locale) {
-                $level = $tags->filter(static fn (Tag $tag): bool => isset($slugs[$locale]) && $tag->slugFor($locale) === $slugs[$locale]);
+            $matched = [];
 
-                if ($level->isNotEmpty()) {
-                    $found[$input] = array_values($level->sortBy(static fn (Tag $tag): string => (string) $tag->getKey())->all());
+            foreach ($byScope as $tags) {
+                foreach ($chain as $locale) {
+                    $level = $tags->filter(static fn (Tag $tag): bool => isset($slugs[$locale]) && $tag->slugFor($locale) === $slugs[$locale]);
 
-                    break;
+                    if ($level->isNotEmpty()) {
+                        $matched = [...$matched, ...$level->all()];
+
+                        break;
+                    }
                 }
+            }
+
+            if ($matched !== []) {
+                usort($matched, static fn (Tag $a, Tag $b): int => strcmp((string) $a->getKey(), (string) $b->getKey()));
+                $found[$input] = $matched;
             }
         }
 
