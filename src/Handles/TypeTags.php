@@ -10,11 +10,14 @@ use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Tags\Actions\Catalog\CreateTagAction;
 use RoundlyConsulting\Tags\Actions\Catalog\DeleteTagAction;
 use RoundlyConsulting\Tags\Actions\Catalog\FindOrCreateTagAction;
+use RoundlyConsulting\Tags\Actions\Catalog\MoveTagAction;
+use RoundlyConsulting\Tags\Actions\Catalog\ReorderTagsAction;
 use RoundlyConsulting\Tags\Actions\Catalog\RestoreTagAction;
 use RoundlyConsulting\Tags\Actions\Catalog\UpdateTagAction;
 use RoundlyConsulting\Tags\Builders\TagBuilder;
 use RoundlyConsulting\Tags\Builders\TagEditor;
 use RoundlyConsulting\Tags\DataTransferObjects\TagData;
+use RoundlyConsulting\Tags\DataTransferObjects\TagNode;
 use RoundlyConsulting\Tags\DataTransferObjects\UpdateTagData;
 use RoundlyConsulting\Tags\Enums\TagChildren;
 use RoundlyConsulting\Tags\Enums\TagOperation;
@@ -22,6 +25,7 @@ use RoundlyConsulting\Tags\Exceptions\TagNotFoundException;
 use RoundlyConsulting\Tags\Exceptions\TagScopeMismatchException;
 use RoundlyConsulting\Tags\Exceptions\TagTypeMismatchException;
 use RoundlyConsulting\Tags\Models\Tag;
+use RoundlyConsulting\Tags\Queries\BuildTagTree;
 use RoundlyConsulting\Tags\Support\KeyShape;
 use RoundlyConsulting\Tags\Support\ScopeKey;
 use RoundlyConsulting\Tags\Support\TagLookup;
@@ -128,6 +132,46 @@ final readonly class TypeTags
     }
 
     /**
+     * Move a tag under another parent (null: a root), optionally to a position among its new
+     * siblings.
+     */
+    public function move(Tag $tag, ?Tag $under = null, ?int $position = null): Tag
+    {
+        $this->ensureWritable($tag);
+
+        if ($under !== null) {
+            $this->ensureWritable($under);
+        }
+
+        return $this->manager->perform(
+            TagOperation::MoveTag,
+            MoveTagAction::class,
+            static fn (MoveTagAction $action): Tag => $action->execute($tag, $under, $position),
+            ['type' => $this->type->name, 'tag' => $tag, 'parent' => $under, 'position' => $position],
+        );
+    }
+
+    /**
+     * Order the siblings under `$parent` (the roots when null): the listed ones first, 0..n-1.
+     *
+     * @param  array<array-key, Tag|int|string>  $order  tags or their keys
+     * @return Collection<int, Tag>
+     */
+    public function reorder(?Tag $parent, array $order): Collection
+    {
+        if ($parent !== null) {
+            $this->ensureWritable($parent);
+        }
+
+        return $this->manager->perform(
+            TagOperation::ReorderTags,
+            ReorderTagsAction::class,
+            fn (ReorderTagsAction $action): Collection => $action->execute($this->type, $this->scope, $parent, $order),
+            ['type' => $this->type->name, 'parent' => $parent, 'order' => $order, 'scope' => $this->scope],
+        );
+    }
+
+    /**
      * Soft-delete a tag and detach it everywhere. Children: refuse (default), reparent or delete.
      */
     public function delete(Tag $tag, TagChildren $children = TagChildren::Refuse): Tag
@@ -226,6 +270,20 @@ final readonly class TypeTags
     public function roots(): Collection
     {
         return $this->query()->roots()->ordered()->get();
+    }
+
+    /**
+     * The tree (or `$root`'s subtree, `$root` on top) in one query, nested by position.
+     *
+     * @return list<TagNode>
+     */
+    public function tree(?Tag $root = null): array
+    {
+        if ($root !== null && ! $this->isReadable($root)) {
+            throw TagNotFoundException::generic();
+        }
+
+        return $this->manager->container()->make(BuildTagTree::class)->build($this->type, $this->readScopeKeys(), $root);
     }
 
     /**

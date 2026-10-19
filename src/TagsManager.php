@@ -205,6 +205,16 @@ class TagsManager
     }
 
     /**
+     * The container the manager resolves actions and read services from.
+     *
+     * @internal
+     */
+    public function container(): Container
+    {
+        return $this->container;
+    }
+
+    /**
      * The type registry the manager reads.
      *
      * @internal

@@ -72,3 +72,26 @@ test('lock_order_is_tree_then_taggable_then_tags', function (): void {
         ->and($pivotDelete)->toBeGreaterThan($pivotInsert)
         ->and(collect(LockRecorder::recorded())->every(fn (array $lock): bool => $lock['transactionDepth'] >= 1))->toBeTrue();
 })->skip(fn (): bool => ! RecordsLocks::available(), 'lock recording is a sqlite grammar');
+
+test('tree_writes_take_the_tree_lock', function (Closure $write): void {
+    $music = Tags::type('genre')->make('Music')->create();
+    $jazz = Tags::type('genre')->make('Jazz')->under($music)->create();
+    $rock = Tags::type('genre')->make('Rock')->create();
+    RecordsLocks::start();
+
+    $write($music, $jazz, $rock);
+
+    expect(RecordsLocks::tables()[0] ?? null)->toBe('tag_locks')
+        ->and(LockRecorder::recorded()[0]['transactionDepth'] ?? 0)->toBeGreaterThanOrEqual(1);
+})->with([
+    'create under a parent' => [fn ($music) => Tags::type('genre')->make('Bebop')->under($music)->create()],
+    'create at a position' => [fn () => Tags::type('genre')->make('Pop')->position(0)->create()],
+    'move' => [fn ($music, $jazz, $rock) => Tags::type('genre')->move($jazz, $rock)],
+    'reorder' => [fn ($music, $jazz, $rock) => Tags::type('genre')->reorder(null, [$rock, $music])],
+    'delete' => [fn ($music, $jazz) => Tags::type('genre')->delete($jazz)],
+    'restore' => [function ($music, $jazz): void {
+        Tags::type('genre')->delete($jazz);
+        RecordsLocks::start();
+        Tags::type('genre')->restore($jazz);
+    }],
+])->skip(fn (): bool => ! RecordsLocks::available(), 'lock recording is a sqlite grammar');
