@@ -62,11 +62,15 @@ final readonly class UpdateTagAction
                 if ($merged !== $current) {
                     $changed[] = 'name';
 
-                    if (! $type->stableSlugs) {
-                        foreach ($name as $locale => $value) {
-                            if (($current[$locale] ?? null) !== $value) {
-                                $probe[$locale] = TagSlugs::slugify($value, $locale);
-                            }
+                    // A slug follows its changed name; on a stable-slug type only a locale without a
+                    // slug yet takes one.
+                    foreach ($name as $locale => $value) {
+                        $takesSlug = $type->stableSlugs
+                            ? $fresh->slugFor($locale) === null
+                            : ($current[$locale] ?? null) !== $value;
+
+                        if ($takesSlug) {
+                            $probe[$locale] = TagSlugs::slugify($value, $locale);
                         }
                     }
 

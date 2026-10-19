@@ -108,6 +108,21 @@ test('rename_onto_a_trashed_tags_slug_points_to_restore', function (): void {
     expect(fn () => Tags::type('tag')->rename($pop, 'Rock'))->toThrow(DuplicateTagException::class, 'restore that tag instead');
 });
 
+// A stable-slug type gives a newly named locale its slug once: when a deleted tag holds that slug
+// the rename points to restore, naming the locale, as on any other type.
+test('a_stable_slug_rename_onto_a_trashed_tags_slug_points_to_restore', function (): void {
+    Tags::define('genre')->hierarchical()->stableSlugs();
+    $genres = Tags::type('genre');
+    $swing = $genres->make(['en' => 'Swing'])->create();
+    $jazz = $genres->make(['en' => 'Jazz', 'sk' => 'Džez'])->create();
+    $genres->delete($jazz);
+
+    expect(fn () => $genres->rename($swing, ['sk' => 'Džez']))
+        ->toThrow(DuplicateTagException::class, 'A deleted tag holds the slug [dzez] in [sk]: restore that tag instead.')
+        ->and($genres->rename($swing, ['en' => 'Jazz'])->slugFor('en'))->toBe('swing')
+        ->and($swing->fresh()?->slugFor('sk'))->toBeNull();
+});
+
 test('slug_follows_the_name_per_locale', function (): void {
     $tag = Tags::type('tag')->make(['en' => 'Rock', 'sk' => 'Skala'])->create();
 
