@@ -47,5 +47,6 @@ Initial public release.
   Pest expectations. `TagChanges` lists the tags a write attached, detached, created and restored.
 - `tags:doctor` and `tags:repair` for paths, scope keys, usage counts, orphan taggings and
   taggings left on deleted tags; the doctor also checks the app locale against
-  `translatable.locales`, and repair runs in chunks, safe under live traffic.
+  `translatable.locales` and lists tags deeper than their type's cap, and repair runs in chunks,
+  safe under live traffic.
 - English and Slovak translations.

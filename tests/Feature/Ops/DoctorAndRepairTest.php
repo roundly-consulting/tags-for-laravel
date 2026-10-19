@@ -217,6 +217,23 @@ it('prints taggings on deleted tags in the repair report', function (): void {
     expect(Tagging::query()->count())->toBe(0);
 });
 
+// §4.2: a cap lowered after data exists rewrites nothing; the doctor lists what sits too deep.
+// A deleted tag a move carried past the cap is no finding: it cannot be restored there.
+test('doctor_reports_tags_deeper_than_their_type_allows', function (): void {
+    $deleted = Tags::type('genre')->make('Cool')->under($this->bebop)->create();
+    Tags::type('genre')->delete($deleted);
+
+    expect(collect(doctorFindings())->where('section', 'trees')->all())->toBe([]);
+
+    Tags::extend('genre', static fn ($type) => $type->hierarchical(maxDepth: 2));
+
+    expect(collect(doctorFindings())->where('section', 'trees')->values()->all())->toBe([[
+        'severity' => 'error',
+        'section' => 'trees',
+        'message' => '1 tag(s) of [genre] sit deeper than its max depth of 2.',
+    ]]);
+});
+
 test('doctor_reports_missing_locale_indexes', function (): void {
     $table = 'tags';
     DB::statement('drop index '.(DB::getDriverName() === 'mysql' ? '`'.IndexNames::index($table, 'slug', 'sk').'` on `tags`' : '"'.IndexNames::index($table, 'slug', 'sk').'"'));

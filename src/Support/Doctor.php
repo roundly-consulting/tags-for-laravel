@@ -151,8 +151,19 @@ final readonly class Doctor
         foreach ($this->registry->names() as $name) {
             $type = $this->safely($name);
 
-            if ($type !== null && ! $type->hierarchical && TagModel::query()->withTrashed()->where('type', $name)->whereNotNull('parent_id')->exists()) {
+            if ($type === null) {
+                continue;
+            }
+
+            if (! $type->hierarchical && TagModel::query()->withTrashed()->where('type', $name)->whereNotNull('parent_id')->exists()) {
                 $error('trees', "Tags of the flat type [{$name}] have parents.");
+            }
+
+            // A cap lowered after data exists rewrites nothing (§4.2): list what sits too deep.
+            $deep = $type->maxDepth === null ? 0 : TagModel::query()->where('type', $name)->where('depth', '>', $type->maxDepth)->count();
+
+            if ($deep > 0) {
+                $error('trees', "{$deep} tag(s) of [{$name}] sit deeper than its max depth of {$type->maxDepth}.");
             }
         }
 
