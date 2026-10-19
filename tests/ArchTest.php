@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use RoundlyConsulting\PackageTemplate\PackageTemplateManager;
+use RoundlyConsulting\Tags\TagsManager;
 use RoundlyConsulting\Testing\Arch\ArchPresets;
 
 /**
@@ -18,11 +18,11 @@ use RoundlyConsulting\Testing\Arch\ArchPresets;
  * `morphColumnsUseTheSeam` is likewise skipped until the package ships migrations with
  * polymorphic columns.
  */
-ArchPresets::strictTypes('RoundlyConsulting\PackageTemplate');
-// The manager is the one deliberate non-final class: PackageTemplateFake extends it, so an
-// injected manager still type-checks under PackageTemplate::fake().
-ArchPresets::finalByDefault('RoundlyConsulting\PackageTemplate', [PackageTemplateManager::class]);
-ArchPresets::noLocalCryptoPrimitives('RoundlyConsulting\PackageTemplate');
+ArchPresets::strictTypes('RoundlyConsulting\Tags');
+// The manager is the one deliberate non-final class: TagsFake extends it, so an
+// injected manager still type-checks under Tags::fake().
+ArchPresets::finalByDefault('RoundlyConsulting\Tags', [TagsManager::class]);
+ArchPresets::noLocalCryptoPrimitives('RoundlyConsulting\Tags');
 
 /**
  * The Dependency Policy as a test. No `alsoAllow`: this template's `require` ships only
@@ -34,4 +34,4 @@ ArchPresets::runtimeRequireIsWhitelisted(__DIR__.'/../composer.json');
 ArchPresets::noDebuggingLeftovers();
 
 // Enable once the package has Models/Concerns/Traits — the preset fails on an empty namespace.
-// ArchPresets::modelsGoThroughTheFacade('RoundlyConsulting\PackageTemplate');
+// ArchPresets::modelsGoThroughTheFacade('RoundlyConsulting\Tags');

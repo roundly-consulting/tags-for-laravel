@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Facade;
 use PHPUnit\Framework\ExpectationFailedException;
-use RoundlyConsulting\PackageTemplate\Actions\ExamplePackageTemplateAction;
-use RoundlyConsulting\PackageTemplate\DataTransferObjects\ExamplePackageTemplateData;
-use RoundlyConsulting\PackageTemplate\Facades\PackageTemplate;
-use RoundlyConsulting\PackageTemplate\PackageTemplateManager;
-use RoundlyConsulting\PackageTemplate\Testing\PackageTemplateFake;
+use RoundlyConsulting\Tags\Actions\ExampleTagsAction;
+use RoundlyConsulting\Tags\DataTransferObjects\ExampleTagsData;
+use RoundlyConsulting\Tags\Facades\Tags;
+use RoundlyConsulting\Tags\TagsManager;
+use RoundlyConsulting\Tags\Testing\TagsFake;
 
 /**
  * The public API contract — Actions → Manager → Facade (+ fake) — pinned from day one.
@@ -17,69 +17,69 @@ use RoundlyConsulting\PackageTemplate\Testing\PackageTemplateFake;
  * for every fake assert.
  */
 it('pins the facade contract', function (): void {
-    expect(PackageTemplate::class)
+    expect(Tags::class)
         ->toDocumentItsRoot()
         ->toBeFakeable()
         ->toReachEveryAction(__DIR__.'/../../src/Actions');
 });
 
 it('runs the example through the facade', function (): void {
-    expect(PackageTemplate::example(new ExamplePackageTemplateData('Ada')))->toBe('Hello, Ada!');
+    expect(Tags::example(new ExampleTagsData('Ada')))->toBe('Hello, Ada!');
 });
 
 it('runs the example through an injected manager', function (): void {
-    $manager = app(PackageTemplateManager::class);
+    $manager = app(TagsManager::class);
 
-    expect($manager)->toBe(app(PackageTemplateManager::class))
-        ->and($manager->example(new ExamplePackageTemplateData('Ada')))->toBe('Hello, Ada!');
+    expect($manager)->toBe(app(TagsManager::class))
+        ->and($manager->example(new ExampleTagsData('Ada')))->toBe('Hello, Ada!');
 });
 
 it('runs the example action directly', function (): void {
-    expect(app(ExamplePackageTemplateAction::class)->execute(new ExamplePackageTemplateData('Ada')))
+    expect(app(ExampleTagsAction::class)->execute(new ExampleTagsData('Ada')))
         ->toBe('Hello, Ada!');
 });
 
 it('resolves the action through the container so a host override applies', function (): void {
-    app()->bind(ExamplePackageTemplateAction::class, static fn (): never => throw new RuntimeException('overridden'));
+    app()->bind(ExampleTagsAction::class, static fn (): never => throw new RuntimeException('overridden'));
 
-    PackageTemplate::example(new ExamplePackageTemplateData('Ada'));
+    Tags::example(new ExampleTagsData('Ada'));
 })->throws(RuntimeException::class, 'overridden');
 
 it('records facade and injected calls under the fake without running the action', function (): void {
-    app()->bind(ExamplePackageTemplateAction::class, static fn (): never => throw new RuntimeException('ran'));
+    app()->bind(ExampleTagsAction::class, static fn (): never => throw new RuntimeException('ran'));
 
-    $fake = PackageTemplate::fake();
+    $fake = Tags::fake();
 
-    PackageTemplate::example(new ExamplePackageTemplateData('Ada'));
-    app(PackageTemplateManager::class)->example(new ExamplePackageTemplateData('Grace'));
+    Tags::example(new ExampleTagsData('Ada'));
+    app(TagsManager::class)->example(new ExampleTagsData('Grace'));
 
-    expect(app(PackageTemplateManager::class))->toBeInstanceOf(PackageTemplateFake::class);
+    expect(app(TagsManager::class))->toBeInstanceOf(TagsFake::class);
 
     $fake->assertExampleCalled();
-    $fake->assertExampleCalled(static fn (ExamplePackageTemplateData $data): bool => $data->name === 'Ada');
-    PackageTemplate::assertExampleCalled(static fn (ExamplePackageTemplateData $data): bool => $data->name === 'Grace');
+    $fake->assertExampleCalled(static fn (ExampleTagsData $data): bool => $data->name === 'Ada');
+    Tags::assertExampleCalled(static fn (ExampleTagsData $data): bool => $data->name === 'Grace');
 });
 
 it('fails assertExampleCalled when nothing was called', function (): void {
-    PackageTemplate::fake()->assertExampleCalled();
+    Tags::fake()->assertExampleCalled();
 })->throws(ExpectationFailedException::class, 'Expected example() to be called, but it was not.');
 
 it('fails assertExampleCalled when no call matches', function (): void {
-    $fake = PackageTemplate::fake();
+    $fake = Tags::fake();
 
-    PackageTemplate::example(new ExamplePackageTemplateData('Ada'));
+    Tags::example(new ExampleTagsData('Ada'));
 
-    $fake->assertExampleCalled(static fn (ExamplePackageTemplateData $data): bool => $data->name === 'Grace');
+    $fake->assertExampleCalled(static fn (ExampleTagsData $data): bool => $data->name === 'Grace');
 })->throws(ExpectationFailedException::class, 'no call matched');
 
 it('passes assertNothingCalled on an untouched fake', function (): void {
-    PackageTemplate::fake()->assertNothingCalled();
+    Tags::fake()->assertNothingCalled();
 });
 
 it('fails assertNothingCalled after a call', function (): void {
-    $fake = PackageTemplate::fake();
+    $fake = Tags::fake();
 
-    PackageTemplate::example(new ExamplePackageTemplateData('Ada'));
+    Tags::example(new ExampleTagsData('Ada'));
 
     $fake->assertNothingCalled();
 })->throws(ExpectationFailedException::class, 'example() was called 1 time(s)');
@@ -95,7 +95,7 @@ it('declares the global alias for the facade and never a core facade name', func
     // there (`Str`, `Number`, `Js`, …). Compared case-insensitively, as PHP resolves class names.
     $coreAliases = array_map(strtolower(...), array_keys(Facade::defaultAliases()->all()));
 
-    expect($aliases)->toBe([class_basename(PackageTemplate::class) => PackageTemplate::class])
+    expect($aliases)->toBe([class_basename(Tags::class) => Tags::class])
         ->and(class_exists('Illuminate\\Support\\Facades\\'.$alias))->toBeFalse()
         ->and($coreAliases)->not->toContain(strtolower($alias));
 });
