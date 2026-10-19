@@ -99,7 +99,8 @@ final class Taggings
      * model's row as its first statement, so in a transaction of its own its later plain reads see
      * what the previous writer committed (MySQL's REPEATABLE READ takes its snapshot at the first
      * plain read). A host transaction may have taken that snapshot earlier: then the current
-     * taggings are read with a locking read, which always sees the latest committed rows.
+     * taggings are read with a locking read, which always sees the latest committed rows
+     * ({@see self::currentForWrite()}).
      */
     public static function nested(): bool
     {
@@ -139,6 +140,48 @@ final class Taggings
         }
 
         return $current;
+    }
+
+    /**
+     * The model's current taggings for a write, after its row lock. In a transaction of its own,
+     * a plain read. In a host transaction, a locking read of its pivot rows — taken after the tag
+     * rows they point at (and `$alsoLock`, the tags the write will attach) are locked in key
+     * order, the order a tag delete or restore takes (tag rows, then pivot rows), so the two never
+     * wait on each other in a cycle. A tag the snapshot missed (attached after the host's snapshot
+     * was taken) is locked last.
+     *
+     * @param  list<int|string>  $alsoLock
+     * @return array<string, string> tag key => type
+     */
+    public static function currentForWrite(Model $taggable, ?string $type = null, array $alsoLock = []): array
+    {
+        if (! self::nested()) {
+            return self::current($taggable, $type);
+        }
+
+        $locked = self::lockTags([...array_keys(self::current($taggable, $type)), ...$alsoLock]);
+        $current = self::current($taggable, $type, locked: true);
+        self::lockTags(array_values(array_diff(array_map(strval(...), array_keys($current)), $locked)));
+
+        return $current;
+    }
+
+    /**
+     * Lock tag rows `FOR UPDATE`, in key order.
+     *
+     * @param  list<int|string>  $keys
+     * @return list<string> the keys locked
+     */
+    public static function lockTags(array $keys): array
+    {
+        $keys = array_values(array_unique(array_map(strval(...), $keys)));
+
+        if ($keys !== []) {
+            $tags = TagModel::make();
+            TagModel::query()->withTrashed()->whereKey($keys)->orderBy($tags->getKeyName())->lockForUpdate()->get([$tags->getKeyName()]);
+        }
+
+        return $keys;
     }
 
     /**

@@ -33,6 +33,28 @@ test('the_taggable_row_is_locked_for_every_write', function (Closure $write): vo
     'clear' => [fn (Article $article) => $article->clearTags()],
 ])->skip(fn (): bool => ! RecordsLocks::available(), 'lock recording is a sqlite grammar');
 
+// In a host transaction the pivot rows are read with a locking read — after the tag rows they
+// point at, the order a tag delete takes, so the two never wait on each other in a cycle.
+test('a_nested_tagging_write_locks_tag_rows_before_pivot_rows', function (string $verb): void {
+    $this->article->attachTags(['a', 'b']);
+    RecordsLocks::start();
+
+    DB::transaction(fn () => match ($verb) {
+        'attach' => $this->article->attachTags(['a', 'c']),
+        'sync' => $this->article->syncTags(['a']),
+        'detach' => $this->article->detachTags(['b']),
+        'clear' => $this->article->clearTags(),
+    });
+
+    $writes = RecordsLocks::writes();
+    $pivotRead = array_search('lock:taggables', $writes, true);
+
+    expect($writes[0])->toBe('lock:articles')
+        ->and($pivotRead)->toBeInt()
+        ->and(array_slice($writes, 1, (int) $pivotRead - 1))->toContain('lock:tags')
+        ->and(array_slice($writes, 1, (int) $pivotRead - 1))->not->toContain('lock:taggables');
+})->with(['attach', 'sync', 'detach', 'clear'])->skip(fn (): bool => ! RecordsLocks::available(), 'lock recording is a sqlite grammar');
+
 test('tag_rows_are_locked_before_pivot_writes', function (): void {
     $this->article->attachTags(['a']);
     RecordsLocks::start();

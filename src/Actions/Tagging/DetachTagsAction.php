@@ -39,7 +39,7 @@ final readonly class DetachTagsAction
             Taggings::lock($taggable);
 
             $resolved = $resolve->execute($taggable, $selection, strict: false);
-            $current = Taggings::current($taggable, locked: Taggings::nested());
+            $current = Taggings::currentForWrite($taggable);
             $detach = [];
 
             foreach ($resolved->tags as $tags) {

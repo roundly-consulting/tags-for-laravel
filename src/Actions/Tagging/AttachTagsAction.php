@@ -59,7 +59,7 @@ final readonly class AttachTagsAction
             Taggings::lock($taggable);
 
             $resolved = $resolve->execute($taggable, $selection, strict: true);
-            $current = Taggings::current($taggable, locked: Taggings::nested());
+            $current = Taggings::currentForWrite($taggable, alsoLock: self::keysOf($resolved));
 
             self::ensureWithinMax($resolved->types, $current, self::adding($resolved));
 
@@ -82,6 +82,24 @@ final readonly class AttachTagsAction
 
             return $apply->execute($taggable, array_values($attach), [], $stored);
         });
+    }
+
+    /**
+     * The keys of the existing tags the call names.
+     *
+     * @return list<int|string>
+     */
+    private static function keysOf(ResolvedSelection $resolved): array
+    {
+        $keys = [];
+
+        foreach ($resolved->tags as $tags) {
+            foreach ($tags as $tag) {
+                $keys[] = $tag->getKey();
+            }
+        }
+
+        return $keys;
     }
 
     /**

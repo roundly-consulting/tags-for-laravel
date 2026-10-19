@@ -34,7 +34,7 @@ final readonly class ClearTagsAction
         return TagTransaction::run(static function () use ($taggable, $name, $apply): TagChanges {
             Taggings::lock($taggable);
 
-            return $apply->execute($taggable, [], array_keys(Taggings::current($taggable, $name, locked: Taggings::nested())));
+            return $apply->execute($taggable, [], array_keys(Taggings::currentForWrite($taggable, $name)));
         });
     }
 }

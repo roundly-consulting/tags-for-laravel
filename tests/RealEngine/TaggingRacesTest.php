@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use RoundlyConsulting\Tags\DataTransferObjects\RepairOptions;
 use RoundlyConsulting\Tags\Exceptions\TagLimitExceededException;
@@ -194,4 +196,82 @@ test('repair_counts_stay_exact_under_concurrent_attaches', function (): void {
         ->and(Tagging::query()->count())->toBe(10)
         ->and($live->fresh()?->usage_count)->toBe(10)
         ->and(Tags::repair(new RepairOptions(paths: false, scopeKeys: false, orphans: false, dryRun: true))->counts)->toBe(0);
+})->skip(fn (): bool => ! Racer::available(), 'needs a real engine and pcntl')->group('real-engine');
+
+// Inside a host transaction a tagging write locks the tag rows it may touch before it reads the
+// model's pivot rows with a locking read — the order a tag delete takes (tag rows, then pivot
+// rows) — so the two never deadlock. The delete runs in a host transaction too, so neither side
+// is retried: the absence of the cycle itself is what this proves.
+test('a_nested_tagging_write_and_a_tag_delete_never_deadlock', function (string $verb): void {
+    $x = Tags::type('tag')->make('X')->create();
+    $article = Article::query()->create();
+    $article->attachTags($x);
+    $racer = new Racer;
+    $started = false;
+
+    // At the write's locking read of the article's pivot rows, a delete of x starts elsewhere.
+    DB::listen(static function (QueryExecuted $query) use (&$started, $racer, $x): void {
+        if ($started || ! str_contains(strtolower($query->sql), 'for update') || ! str_contains($query->sql, 'taggables')) {
+            return;
+        }
+
+        $started = true;
+
+        $racer->run(static fn (): string => DB::connection('racer')->transaction(static function () use ($x): string {
+            Tags::type('tag')->delete(Tag::on('racer')->findOrFail($x->getKey()));
+
+            return 'deleted';
+        }))->waitUntilBlockedOrDone();
+    });
+
+    $outcome = 'done';
+
+    try {
+        DB::transaction(static fn () => match ($verb) {
+            'detach' => $article->detachTags($x),
+            'sync' => $article->syncTags(null, 'tag'),
+            'clear' => $article->clearTags(),
+            'attach' => $article->attachTags('y'),
+        });
+    } catch (QueryException $exception) {
+        $outcome = 'error: '.$exception->getMessage();
+    }
+
+    expect($started)->toBeTrue()
+        ->and($outcome)->toBe('done')
+        ->and($racer->outcome())->toBe('deleted')
+        ->and(Tagging::query()->where('tag_id', $x->getKey())->count())->toBe(0)
+        ->and($x->fresh()?->usage_count)->toBe(0);
+})->with(['detach', 'sync', 'clear', 'attach'])->skip(fn (): bool => ! Racer::available(), 'needs a real engine and pcntl')->group('real-engine');
+
+// The other side: the delete holds the tag row; a host transaction's detach waits for it instead
+// of holding the pivot rows the delete needs.
+test('the_hosts_transaction_survives_a_concurrent_tag_delete', function (): void {
+    $x = Tags::type('tag')->make('X')->create();
+    $article = Article::query()->create();
+    $article->attachTags($x);
+    $racer = new Racer;
+    $started = false;
+
+    DB::listen(static function (QueryExecuted $query) use (&$started, $racer, $x, $article): void {
+        $sql = strtolower($query->sql);
+
+        if ($started || ! str_contains($sql, 'for update') || (! str_contains($sql, '"tags"') && ! str_contains($sql, '`tags`'))) {
+            return;
+        }
+
+        $started = true;
+
+        $racer->run(static fn (): string => DB::connection('racer')->transaction(static function () use ($x, $article): string {
+            $changes = Article::on('racer')->findOrFail($article->getKey())->detachTags(Tag::on('racer')->findOrFail($x->getKey()));
+
+            return 'detached';
+        }))->waitUntilBlockedOrDone();
+    });
+
+    Tags::type('tag')->delete($x);
+
+    expect($started)->toBeTrue()
+        ->and($racer->outcome())->toBe('detached')
+        ->and(Tagging::query()->where('tag_id', $x->getKey())->count())->toBe(0);
 })->skip(fn (): bool => ! Racer::available(), 'needs a real engine and pcntl')->group('real-engine');

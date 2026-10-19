@@ -15,6 +15,7 @@ use RoundlyConsulting\Tags\Events\TagCreated;
 use RoundlyConsulting\Tags\Events\TagRestored;
 use RoundlyConsulting\Tags\Exceptions\TagLimitExceededException;
 use RoundlyConsulting\Tags\Exceptions\UnknownTagTypeException;
+use RoundlyConsulting\Tags\Models\Tag;
 use RoundlyConsulting\Tags\Support\ScopeKey;
 use RoundlyConsulting\Tags\Support\Taggings;
 use RoundlyConsulting\Tags\Support\TagName;
@@ -78,7 +79,7 @@ final readonly class SyncTagsAction
                 $created[] = $stored;
             }
 
-            $current = Taggings::current($taggable, $type->name, locked: Taggings::nested());
+            $current = Taggings::currentForWrite($taggable, $type->name, array_map(static fn (Tag $tag): int|string => $tag->getKey(), $tags));
 
             // Never more than the max checked above: the stored names only ever collapse onto
             // tags already counted.
