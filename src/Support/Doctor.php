@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\LazyCollection;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 use ReflectionClass;
 use RoundlyConsulting\PackageToolkit\Enums\KeyType;
 use RoundlyConsulting\Sluggable\Contracts\SlugLocales;
@@ -18,6 +19,7 @@ use RoundlyConsulting\Tags\DataTransferObjects\DoctorFinding;
 use RoundlyConsulting\Tags\DataTransferObjects\RepairOptions;
 use RoundlyConsulting\Tags\DataTransferObjects\ScopedTagging;
 use RoundlyConsulting\Tags\Enums\FindingSeverity;
+use RoundlyConsulting\Tags\Exceptions\InvalidTagsConfigurationException;
 use RoundlyConsulting\Tags\Exceptions\TagsException;
 use RoundlyConsulting\Tags\Models\Tagging;
 use RoundlyConsulting\Tags\Types\TagType;
@@ -58,7 +60,7 @@ final readonly class Doctor
         $this->indexes($error);
         $this->locales($error, $warning);
         $this->keyTypes($error, $warning);
-        $this->scopes($warning);
+        $this->scopes($error, $warning);
 
         $report = $this->repair->execute(new RepairOptions(paths: false, scopeKeys: false, counts: $counts, orphans: true, dryRun: true));
 
@@ -259,13 +261,17 @@ final readonly class Doctor
      * Taggings whose tag no longer belongs to one of the model's candidate scopes (its
      * `tagScope()` changed since): kept until the next sync of that type. Streams the scoped
      * taggings of live tags in pages and loads each page's models with one query per class, so
-     * the query count does not grow with the taggings on a page.
+     * the query count does not grow with the taggings on a page. A model whose `tagScope()` gives
+     * no usable scope (unsaved, or keyed against `tags.key_type`) is an error, never a crash.
      *
+     * @param  callable(string, string): void  $error
      * @param  callable(string, string): void  $warning
      */
-    private function scopes(callable $warning): void
+    private function scopes(callable $error, callable $warning): void
     {
         $outside = 0;
+        /** @var array<string, array<string, true>> $broken class basename => model keys */
+        $broken = [];
         $tags = TagModel::make();
         $taggings = new Tagging;
 
@@ -280,8 +286,8 @@ final readonly class Doctor
             ->toBase()
             ->lazy(self::PAGE)
             ->chunk(self::PAGE)
-            ->each(function (LazyCollection $page) use (&$outside): void {
-                $outside += $this->outsideScope($page->map(static fn (object $row): ScopedTagging => new ScopedTagging(
+            ->each(function (LazyCollection $page) use (&$outside, &$broken): void {
+                $outside += $this->outsideScope($broken, $page->map(static fn (object $row): ScopedTagging => new ScopedTagging(
                     (string) ($row->taggable_type ?? ''),
                     (string) ($row->taggable_id ?? ''),
                     (string) ($row->scope_key ?? ''),
@@ -292,6 +298,10 @@ final readonly class Doctor
         if ($outside > 0) {
             $warning('scopes', "{$outside} tagging(s) sit outside their model's current scope; the next sync of that type drops them.");
         }
+
+        foreach ($broken as $class => $models) {
+            $error('scopes', count($models)." model(s) of [{$class}] have a tagScope() that is not a saved model whose key fits tags.key_type.");
+        }
     }
 
     /**
@@ -299,9 +309,10 @@ final readonly class Doctor
      * in one query; a `tagScope()` that reads a relation (`$this->team`) loads it for the whole
      * page at its first read, where Eloquent supports relationship autoloading.
      *
+     * @param  array<string, array<string, true>>  $broken  models whose tagScope() is unusable, filled in
      * @param  LazyCollection<int, ScopedTagging>  $page
      */
-    private function outsideScope(LazyCollection $page): int
+    private function outsideScope(array &$broken, LazyCollection $page): int
     {
         $outside = 0;
 
@@ -329,7 +340,19 @@ final readonly class Doctor
                 $model = $byKey->get($row->taggableId);
                 $type = $this->safely($row->type);
 
-                if ($model instanceof Taggable && $type !== null && ! in_array($row->scopeKey, Taggings::candidateScopeKeys($model, $type), true)) {
+                if (! $model instanceof Taggable || $type === null) {
+                    continue;
+                }
+
+                try {
+                    $candidates = Taggings::candidateScopeKeys($model, $type);
+                } catch (InvalidArgumentException|InvalidTagsConfigurationException) {
+                    $broken[class_basename($model)][(string) $row->taggableId] = true;
+
+                    continue;
+                }
+
+                if (! in_array($row->scopeKey, $candidates, true)) {
                     $outside++;
                 }
             }

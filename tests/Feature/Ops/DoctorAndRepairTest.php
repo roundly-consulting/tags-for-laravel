@@ -14,6 +14,7 @@ use RoundlyConsulting\Tags\Models\Tag;
 use RoundlyConsulting\Tags\Models\Tagging;
 use RoundlyConsulting\Tags\Support\Doctor;
 use RoundlyConsulting\Tags\Tests\Fixtures\Models\Article;
+use RoundlyConsulting\Tags\Tests\Fixtures\Models\GhostScopeArticle;
 use RoundlyConsulting\Tags\Tests\Fixtures\Models\Note;
 use RoundlyConsulting\Tags\Tests\Fixtures\Models\ScopedArticle;
 use RoundlyConsulting\Tags\Tests\Fixtures\Models\Team;
@@ -275,6 +276,24 @@ it('warns about taggings outside their model scope and an unguarded API', functi
         ->and($findings->every(fn (array $finding): bool => $finding['severity'] === 'warning'))->toBeTrue();
 
     $this->artisan('tags:doctor')->assertSuccessful();
+});
+
+// A taggable whose tagScope() no longer gives a saved model is a finding, never a crash.
+test('doctor_reports_a_taggable_whose_scope_is_unsaved', function (): void {
+    $team = Team::query()->create(['name' => 'Acme']);
+    $article = ScopedArticle::query()->create(['team_id' => $team->getKey()]);
+    $article->attachTags('printer');
+    Tagging::query()->update(['taggable_type' => (new GhostScopeArticle)->getMorphClass()]);
+
+    $findings = collect(doctorFindings());
+
+    expect($findings->firstWhere('section', 'scopes'))->toBe([
+        'severity' => 'error',
+        'section' => 'scopes',
+        'message' => '1 model(s) of [GhostScopeArticle] have a tagScope() that is not a saved model whose key fits tags.key_type.',
+    ]);
+
+    $this->artisan('tags:doctor')->assertFailed();
 });
 
 it('records repairs on the fake and prints the report', function (): void {
