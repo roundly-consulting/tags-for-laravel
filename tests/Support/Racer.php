@@ -71,9 +71,11 @@ final class Racer
         DB::purge('probe');
         $probe = DB::connection('probe');
 
+        // Waits in this test's database only: parallel workers share the server, and a lock wait of
+        // another worker's test must not release this one early.
         $sql = DriverMatrix::driver() === 'pgsql'
             ? "select count(*) as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'"
-            : 'select count(*) as n from performance_schema.data_lock_waits';
+            : 'select count(*) as n from performance_schema.data_lock_waits w join performance_schema.data_locks l on l.engine_lock_id = w.requesting_engine_lock_id where l.object_schema = database()';
 
         for ($i = 0; $i < 1200; $i++) {
             clearstatcache();
