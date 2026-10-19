@@ -61,6 +61,7 @@ final readonly class RestoreTagAction
 
             Taggings::purge($fresh);
             $fresh->restore();
+            $fresh->wasRecentlyRestored = true;
             $rewrite->execute($fresh, $oldPrefix, $fresh->depth - $oldDepth);
 
             event(new TagRestored($fresh));

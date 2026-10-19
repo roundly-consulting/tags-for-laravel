@@ -59,6 +59,7 @@ final readonly class SyncTagsAction
             }
 
             $scope = Taggings::creationScope($taggable, $type);
+            $created = [];
 
             foreach ($missing as $map) {
                 $stored = TagStore::store(new TagDraft($type, $scope, ScopeKey::for($scope), $map), TagName::lookup($map));
@@ -70,6 +71,7 @@ final readonly class SyncTagsAction
                 }
 
                 $tags[] = $stored->tag;
+                $created[] = $stored;
             }
 
             $current = Taggings::current($taggable, $type->name, locked: Taggings::nested());
@@ -88,6 +90,7 @@ final readonly class SyncTagsAction
                 $taggable,
                 array_values(array_diff_key($desired, $current)),
                 array_keys(array_diff_key($current, $desired)),
+                $created,
             );
         });
     }

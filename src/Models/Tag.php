@@ -87,6 +87,12 @@ class Tag extends Model implements Sluggable, Translatable
     /** @var list<string> */
     protected $hidden = ['scope_type', 'scope_key'];
 
+    /**
+     * Whether this instance was just brought back from deleted — the counterpart of
+     * `wasRecentlyCreated`. A plain property, never an attribute.
+     */
+    public bool $wasRecentlyRestored = false;
+
     public function getTable(): string
     {
         return TagsConfig::table('tags');

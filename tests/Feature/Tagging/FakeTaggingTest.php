@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use PHPUnit\Framework\ExpectationFailedException;
+use RoundlyConsulting\Tags\DataTransferObjects\TagChanges;
 use RoundlyConsulting\Tags\Enums\TagOperation;
 use RoundlyConsulting\Tags\Facades\Tags;
 use RoundlyConsulting\Tags\Handles\TypeTags;
@@ -184,4 +185,80 @@ test('fake_covers_every_operation', function (): void {
 
         expect($fake->recorded(TagOperation::from($operation)))->not->toBe([], $operation);
     }
+});
+
+test('fake_sees_tags_created_on_the_fly', function (string $verb): void {
+    Tags::type('label')->findOrCreate('Existing');
+    $fake = Tags::fake();
+
+    $verb === 'attach'
+        ? $this->article->attachTags(['Brand new', 'Existing'], 'label')
+        : $this->article->syncTags(['Brand new', 'Existing'], 'label');
+
+    $fake->assertTagCreated(fn (Tag $tag): bool => $tag->slug === 'brand-new');
+    $fake->assertNoTagRestored();
+
+    expect(fn () => $fake->assertTagCreated(fn (Tag $tag): bool => $tag->slug === 'existing'))
+        ->toThrow(ExpectationFailedException::class, 'none matched the callback')
+        ->and(fn () => $fake->assertNoTagCreated())
+        ->toThrow(ExpectationFailedException::class, 'Expected no tag to be created, but 1 were.');
+
+    // Existing tags only: nothing created.
+    $again = Tags::fake();
+    Article::query()->create()->attachTags(['Brand new', 'Existing'], 'label');
+
+    $again->assertNoTagCreated();
+})->with(['attach', 'sync']);
+
+test('fake_sees_tags_restored_on_the_fly', function (string $via): void {
+    $old = Tags::type('label')->make('Old')->create();
+    Tags::type('label')->delete($old);
+    $fake = Tags::fake();
+
+    match ($via) {
+        'attach' => $this->article->attachTags('Old', 'label'),
+        'sync' => $this->article->syncTags(['Old'], 'label'),
+        'find or create' => Tags::type('label')->findOrCreate('Old'),
+        'create' => Tags::type('label')->make('Old')->create(),
+    };
+
+    $fake->assertTagRestored(fn (Tag $tag): bool => $tag->is($old) && $tag->wasRecentlyRestored);
+    $fake->assertNoTagCreated();
+
+    expect(fn () => $fake->assertNoTagRestored())->toThrow(ExpectationFailedException::class, 'Expected no tag to be restored, but 1 were.')
+        ->and(Tag::query()->findOrFail($old->getKey())->wasRecentlyRestored)->toBeFalse();
+})->with(['attach', 'sync', 'find or create', 'create']);
+
+test('tag_changes_list_created_and_restored_tags', function (): void {
+    Tags::define('genre');
+    $old = Tags::type('label')->make('Old')->create();
+    Tags::type('label')->delete($old);
+    Tags::type('label')->findOrCreate('Existing');
+
+    $attach = Tags::attach($this->article, ['New', 'Old', 'Existing'], 'label');
+    $sync = Tags::sync(Article::query()->create(), ['Fresh', 'New'], 'label');
+    $detach = Tags::detach($this->article, 'New', 'label');
+
+    expect(array_map(fn (Tag $tag): ?string => $tag->slug, $attach->created))->toBe(['new'])
+        ->and(array_map(fn (Tag $tag): ?string => $tag->slug, $attach->restored))->toBe(['old'])
+        ->and($attach->created[0])->toBe(collect($attach->attached)->firstWhere('slug', 'new'))
+        ->and($attach->created[0]->wasRecentlyCreated)->toBeTrue()
+        ->and($attach->restored[0]->wasRecentlyRestored)->toBeTrue()
+        ->and(array_map(fn (Tag $tag): ?string => $tag->slug, $sync->created))->toBe(['fresh'])
+        ->and($sync->restored)->toBe([])
+        ->and($detach->created)->toBe([])
+        ->and($detach->restored)->toBe([])
+        ->and($detach->isEmpty())->toBeFalse();
+});
+
+test('tag_changes_of_type_filters_created_tags', function (): void {
+    Tags::define('genre');
+    $article = Article::query()->create();
+    $genre = Tags::type('genre')->make('Jazz')->create();
+    $changes = Tags::attach($article, ['New'], 'label');
+    $combined = new TagChanges($article, [...$changes->attached, $genre], [], [...$changes->created, $genre], [$genre]);
+
+    expect(array_map(fn (Tag $tag): ?string => $tag->slug, $combined->ofType('label')->created))->toBe(['new'])
+        ->and($combined->ofType('label')->restored)->toBe([])
+        ->and(array_map(fn (Tag $tag): ?string => $tag->slug, $combined->ofType('genre')->restored))->toBe(['jazz']);
 });

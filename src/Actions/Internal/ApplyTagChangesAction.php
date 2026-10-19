@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Tags\Actions\Internal;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
+use RoundlyConsulting\Tags\DataTransferObjects\StoredTag;
 use RoundlyConsulting\Tags\DataTransferObjects\TagChanges;
 use RoundlyConsulting\Tags\Events\Tagged;
 use RoundlyConsulting\Tags\Events\Untagged;
@@ -33,8 +34,9 @@ final readonly class ApplyTagChangesAction
     /**
      * @param  list<int|string>  $attach  tag keys to attach
      * @param  list<int|string>  $detach  tag keys to detach (currently attached)
+     * @param  list<StoredTag>  $stored  the tags this write created or restored for free-form names
      */
-    public function execute(Model $taggable, array $attach, array $detach): TagChanges
+    public function execute(Model $taggable, array $attach, array $detach, array $stored = []): TagChanges
     {
         $keys = array_values(array_unique(array_map(strval(...), [...$attach, ...$detach])));
 
@@ -108,6 +110,37 @@ final readonly class ApplyTagChangesAction
             event(new Untagged($taggable, $detached));
         }
 
-        return new TagChanges($taggable, $attached, $detached);
+        [$created, $restored] = [self::matching($attached, $stored, created: true), self::matching($attached, $stored, created: false)];
+
+        return new TagChanges($taggable, $attached, $detached, $created, $restored);
+    }
+
+    /**
+     * The attached instances this write created (or restored), flagged like the stored ones.
+     *
+     * @param  list<Tag>  $attached
+     * @param  list<StoredTag>  $stored
+     * @return list<Tag>
+     */
+    private static function matching(array $attached, array $stored, bool $created): array
+    {
+        $keys = [];
+
+        foreach ($stored as $result) {
+            if ($created ? $result->created : $result->restored) {
+                $keys[(string) $result->tag->getKey()] = true;
+            }
+        }
+
+        $matching = [];
+
+        foreach ($attached as $tag) {
+            if (isset($keys[(string) $tag->getKey()])) {
+                $created ? $tag->wasRecentlyCreated = true : $tag->wasRecentlyRestored = true;
+                $matching[] = $tag;
+            }
+        }
+
+        return $matching;
     }
 }

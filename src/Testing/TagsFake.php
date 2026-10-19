@@ -235,8 +235,9 @@ final class TagsFake extends TagsManager
     // Catalog --------------------------------------------------------------------------
 
     /**
-     * A tag was created (`create()`, or a `findOrCreate()` that created one), optionally one the
-     * callback accepts.
+     * A tag was created (`create()`, a `findOrCreate()` that created one, or a free-form name an
+     * attach or a sync created), optionally one the callback accepts. A deleted tag brought back
+     * counts as restored, not created.
      *
      * @param  (Closure(Tag): bool)|null  $callback
      */
@@ -290,16 +291,19 @@ final class TagsFake extends TagsManager
     }
 
     /**
+     * A tag was restored (`restore()`, or a deleted tag a `create()`, `findOrCreate()`, attach or
+     * sync brought back for its name), optionally one the callback accepts.
+     *
      * @param  (Closure(Tag): bool)|null  $callback
      */
     public function assertTagRestored(?Closure $callback = null): void
     {
-        $this->assertCatalog($this->tagsOf(TagOperation::RestoreTag), 'restored', $callback);
+        $this->assertCatalog($this->restored(), 'restored', $callback);
     }
 
     public function assertNoTagRestored(): void
     {
-        $this->assertNoCatalog($this->tagsOf(TagOperation::RestoreTag), 'restored');
+        $this->assertNoCatalog($this->restored(), 'restored');
     }
 
     /**
@@ -369,13 +373,41 @@ final class TagsFake extends TagsManager
         $tags = [];
 
         foreach ($this->recorded as $recorded) {
-            if ($recorded->operation === TagOperation::CreateTag && $recorded->result instanceof Tag) {
-                $tags[] = $recorded->result;
+            $result = $recorded->result;
+
+            if ($recorded->operation === TagOperation::CreateTag && $result instanceof Tag && ! $result->wasRecentlyRestored) {
+                $tags[] = $result;
             }
 
-            if ($recorded->operation === TagOperation::FindOrCreateTag && $recorded->result instanceof Tag && $recorded->result->wasRecentlyCreated) {
-                $tags[] = $recorded->result;
+            if ($recorded->operation === TagOperation::FindOrCreateTag && $result instanceof Tag && $result->wasRecentlyCreated) {
+                $tags[] = $result;
             }
+
+            $tags = [...$tags, ...($recorded->changes()->created ?? [])];
+        }
+
+        return $tags;
+    }
+
+    /**
+     * @return list<Tag>
+     */
+    private function restored(): array
+    {
+        $tags = [];
+
+        foreach ($this->recorded as $recorded) {
+            $result = $recorded->result;
+
+            if ($recorded->operation === TagOperation::RestoreTag && $result instanceof Tag) {
+                $tags[] = $result;
+            }
+
+            if (in_array($recorded->operation, [TagOperation::CreateTag, TagOperation::FindOrCreateTag], true) && $result instanceof Tag && $result->wasRecentlyRestored) {
+                $tags[] = $result;
+            }
+
+            $tags = [...$tags, ...($recorded->changes()->restored ?? [])];
         }
 
         return $tags;

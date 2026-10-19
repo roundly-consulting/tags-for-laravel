@@ -9,6 +9,7 @@ use RoundlyConsulting\Tags\Actions\Internal\ApplyTagChangesAction;
 use RoundlyConsulting\Tags\Actions\Internal\ResolveTagsAction;
 use RoundlyConsulting\Tags\Contracts\Taggable;
 use RoundlyConsulting\Tags\DataTransferObjects\ResolvedSelection;
+use RoundlyConsulting\Tags\DataTransferObjects\StoredTag;
 use RoundlyConsulting\Tags\DataTransferObjects\TagChanges;
 use RoundlyConsulting\Tags\DataTransferObjects\TagDraft;
 use RoundlyConsulting\Tags\DataTransferObjects\TagSelection;
@@ -56,15 +57,24 @@ final readonly class AttachTagsAction
 
             self::ensureWithinMax($resolved->types, $current, self::adding($resolved));
 
+            $stored = self::createMissing($taggable, $resolved);
+            $tags = [];
+
+            foreach ($resolved->tags as $byType) {
+                $tags = [...$tags, ...$byType];
+            }
+
+            $tags = [...$tags, ...array_map(static fn (StoredTag $result): Tag => $result->tag, $stored)];
+
             $attach = [];
 
-            foreach (self::createMissing($taggable, $resolved) as $tag) {
+            foreach ($tags as $tag) {
                 if (! isset($current[(string) $tag->getKey()])) {
                     $attach[(string) $tag->getKey()] = $tag->getKey();
                 }
             }
 
-            return $apply->execute($taggable, array_values($attach), []);
+            return $apply->execute($taggable, array_values($attach), [], $stored);
         });
     }
 
@@ -122,20 +132,13 @@ final readonly class AttachTagsAction
     }
 
     /**
-     * Every resolved tag, the free-form ones created (or restored, or found after a race) in the
-     * model's scope.
+     * The free-form names created (or restored, or found after a race) in the model's scope.
      *
-     * @return list<Tag>
+     * @return list<StoredTag>
      */
     private static function createMissing(Model&Taggable $taggable, ResolvedSelection $resolved): array
     {
         $tags = [];
-
-        foreach ($resolved->tags as $byType) {
-            foreach ($byType as $tag) {
-                $tags[] = $tag;
-            }
-        }
 
         foreach ($resolved->missing as $name => $names) {
             $type = $resolved->types[$name];
@@ -150,7 +153,7 @@ final readonly class AttachTagsAction
                     event(new TagRestored($stored->tag));
                 }
 
-                $tags[] = $stored->tag;
+                $tags[] = $stored;
             }
         }
 

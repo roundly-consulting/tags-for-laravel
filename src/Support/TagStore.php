@@ -62,6 +62,7 @@ final class TagStore
             Taggings::purge($tag);
             self::fill($tag, $draft);
             $tag->restore();
+            $tag->wasRecentlyRestored = true;
 
             return new StoredTag($tag, restored: true);
         }
