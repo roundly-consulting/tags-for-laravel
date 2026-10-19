@@ -38,7 +38,8 @@ Initial public release.
   `TagSummaryResource` for nesting tags in host resources.
 - An opt-in JSON API (`tags.routes.enabled`): types, list or tree, show, suggest, popular and
   manager CRUD with moves and reorders, gated by the host's abilities, with no class names and no
-  existence oracle across scopes.
+  existence oracle across scopes. A switch that is not set — missing from a published config,
+  `null` or blank — keeps it off.
 - Events (`Tagged`, `Untagged`, `TagCreated`, `TagUpdated`, `TagMoved`, `TagsReordered`,
   `TagDeleted`, `TagRestored`) after commit, a record-and-pass-through `Tags::fake()` with an
   assertion for every operation (repairs and tags created or restored on the fly included) and

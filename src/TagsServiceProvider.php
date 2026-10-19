@@ -39,6 +39,7 @@ final class TagsServiceProvider extends PackageServiceProvider
     public function register(): void
     {
         parent::register();
+        self::keepUnsetRoutesSwitchOff();
 
         $this->app->singleton(TagTypeRegistry::class);
         $this->app->singleton(TagsManager::class);
@@ -46,6 +47,9 @@ final class TagsServiceProvider extends PackageServiceProvider
 
     public function boot(): void
     {
+        // Again before the toolkit reads the switch: config may change between register and boot.
+        self::keepUnsetRoutesSwitchOff();
+
         parent::boot();
 
         // The toolkit's morphKey()/ownerKey() macros the migrations use.
@@ -57,6 +61,21 @@ final class TagsServiceProvider extends PackageServiceProvider
 
             RateLimiter::for('tags-suggest', static fn (Request $request): Limit => Limit::perMinute(TagsConfig::suggestRateLimit())
                 ->by('suggest:'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
+        }
+    }
+
+    /**
+     * The JSON API is opt-in, but the toolkit reads a switch that is not set as on: a published
+     * config that overrides only part of `routes` (the merge is shallow), `null`, or a bare
+     * `env()` with the variable unset would load every route. Interim guard: replace it with
+     * `hasRoutes(..., enabledByDefault: false)` once tags requires that toolkit release.
+     */
+    private static function keepUnsetRoutesSwitchOff(): void
+    {
+        $enabled = config('tags.routes.enabled');
+
+        if ($enabled === null || (is_string($enabled) && trim($enabled) === '')) {
+            config()->set('tags.routes.enabled', 'off');
         }
     }
 

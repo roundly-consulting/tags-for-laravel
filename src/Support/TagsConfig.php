@@ -285,9 +285,13 @@ final class TagsConfig
         return $list;
     }
 
+    /**
+     * The opt-in JSON API: off unless the switch says otherwise. A switch that is not set (absent,
+     * `null`, blank) is off.
+     */
     public static function routesEnabled(): bool
     {
-        return Config::boolean('tags.routes.enabled', true);
+        return Config::boolean('tags.routes.enabled', false);
     }
 
     public static function rateLimit(): int

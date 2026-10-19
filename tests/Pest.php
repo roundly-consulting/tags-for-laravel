@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use RoundlyConsulting\Tags\Tests\Fixtures\HttpTestCase;
 use RoundlyConsulting\Tags\Tests\Fixtures\SwappedTagTestCase;
+use RoundlyConsulting\Tags\Tests\Fixtures\TrimmedRoutesConfigTestCase;
 use RoundlyConsulting\Tags\Tests\Fixtures\UlidKeyTestCase;
 use RoundlyConsulting\Tags\Tests\Fixtures\UuidKeyTestCase;
 use RoundlyConsulting\Tags\Tests\TestCase;
@@ -20,5 +21,8 @@ uses(SwappedTagTestCase::class)->in('ModelSwap');
 // Key-type legs: the migrations read the key types, so each leg sets them before boot.
 uses(UuidKeyTestCase::class)->in('KeyTypes/UuidKeyTest.php');
 uses(UlidKeyTestCase::class)->in('KeyTypes/UlidKeyTest.php');
+
+// A host config that lost `tags.routes.enabled`: set before boot, as a published file would.
+uses(TrimmedRoutesConfigTestCase::class)->in('RoutesSwitch');
 
 require_once __DIR__.'/Http/Helpers.php';
