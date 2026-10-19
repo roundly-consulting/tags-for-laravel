@@ -7,6 +7,7 @@ use RoundlyConsulting\Tags\Exceptions\InvalidTagException;
 use RoundlyConsulting\Tags\Facades\Tags;
 use RoundlyConsulting\Tags\Models\Tag;
 use RoundlyConsulting\Tags\Tests\Fixtures\Models\Article;
+use RoundlyConsulting\Tags\Tests\Fixtures\Models\ScopedArticle;
 use RoundlyConsulting\Tags\Tests\Fixtures\Models\Team;
 
 beforeEach(function (): void {
@@ -305,6 +306,45 @@ test('index_has_no_n_plus_one', function (): void {
     $narrow = count(DB::getQueryLog());
 
     expect($wide)->toBe($narrow)->and($wide)->toBeLessThanOrEqual(8);
+});
+
+test('suggest_popular_and_reorder_have_no_n_plus_one', function (): void {
+    apiUser(admin: true);
+    Tags::define('topic');
+    $team = Team::query()->create(['name' => 'Acme']);
+    $article = ScopedArticle::query()->create(['title' => 'A', 'team_id' => $team->getKey()]);
+    $topics = Tags::type('topic')->within($team);
+    $scope = 'scope=team:'.$team->getKey().'&scope_only=1';
+    $queries = static function (Closure $call): int {
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $call();
+        $count = count(DB::getQueryLog());
+        DB::disableQueryLog();
+
+        return $count;
+    };
+    $measure = function () use ($topics, $scope, $queries): array {
+        // The current order: a reorder that moves nothing writes nothing, so only reads count.
+        $order = $topics->all()->map(fn (Tag $tag): string => (string) $tag->getKey())->values()->all();
+
+        return [
+            $queries(fn () => $this->getJson("/api/tags/topic/suggest?q=rock&limit=50&{$scope}")->assertOk()),
+            $queries(fn () => $this->getJson("/api/tags/topic/popular?limit=50&{$scope}")->assertOk()),
+            $queries(fn () => $this->postJson("/api/tags/topic/reorder?{$scope}", ['parent' => null, 'order' => $order])->assertOk()),
+        ];
+    };
+
+    $article->attachTags($topics->make('Rock 0')->create(), 'topic');
+    $measure(); // the first reorder creates the tree's lock row
+    $one = $measure();
+
+    foreach (range(1, 20) as $index) {
+        $article->attachTags($topics->make("Rock {$index}")->create(), 'topic');
+    }
+
+    expect($this->getJson("/api/tags/topic/popular?limit=50&{$scope}")->json('data'))->toHaveCount(21)
+        ->and($measure())->toBe($one);
 });
 
 test('suggest_is_throttled', function (): void {

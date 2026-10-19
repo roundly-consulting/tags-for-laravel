@@ -20,6 +20,9 @@ final class SuggestController extends Controller
         $tagType = $this->type($request, $type);
         $this->share($request, $request->scopeModel());
 
-        return TagResource::collection($this->handle($request, $tagType)->suggest($request->term(), $request->limit()))->response();
+        $tags = $this->handle($request, $tagType)->suggest($request->term(), $request->limit());
+        self::loadScopes($tags);
+
+        return TagResource::collection($tags)->response();
     }
 }

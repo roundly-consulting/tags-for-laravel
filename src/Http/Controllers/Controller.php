@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Tags\Http\Controllers;
 
 use Illuminate\Container\Container;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
 use RoundlyConsulting\Tags\Exceptions\TagNotFoundException;
@@ -140,6 +141,24 @@ abstract class Controller
         }
 
         return is_string($value) && preg_match('/^[0-9]{1,10}$/D', $value) === 1 ? (int) $value : null;
+    }
+
+    /**
+     * Load the scope owner of every scoped tag in one query, before `TagResource` renders it.
+     *
+     * @param  iterable<mixed>  $tags
+     */
+    protected static function loadScopes(iterable $tags): void
+    {
+        $scoped = [];
+
+        foreach ($tags as $tag) {
+            if ($tag instanceof Tag && $tag->scope_type !== null) {
+                $scoped[] = $tag;
+            }
+        }
+
+        (new Collection($scoped))->loadMissing('scope');
     }
 
     /**

@@ -21,6 +21,9 @@ final class PopularController extends Controller
         $tagType = $this->type($request, $type);
         $this->share($request, $request->scopeModel());
 
-        return TagResource::collection($this->handle($request, $tagType)->popular($request->limit(), $request->on()))->response();
+        $tags = $this->handle($request, $tagType)->popular($request->limit(), $request->on());
+        self::loadScopes($tags);
+
+        return TagResource::collection($tags)->response();
     }
 }

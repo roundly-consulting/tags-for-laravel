@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Tags\Http\Controllers;
 
-use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
 use RoundlyConsulting\Tags\DataTransferObjects\TagData;
 use RoundlyConsulting\Tags\DataTransferObjects\UpdateTagData;
@@ -17,7 +16,6 @@ use RoundlyConsulting\Tags\Http\Requests\StoreTagRequest;
 use RoundlyConsulting\Tags\Http\Requests\UpdateTagRequest;
 use RoundlyConsulting\Tags\Http\Resources\TagNodeResource;
 use RoundlyConsulting\Tags\Http\Resources\TagResource;
-use RoundlyConsulting\Tags\Models\Tag;
 use RoundlyConsulting\Tags\Support\Messages;
 use RoundlyConsulting\Tags\Support\NotGiven;
 use RoundlyConsulting\Tags\Support\TagModel;
@@ -52,8 +50,7 @@ final class TagController extends Controller
             ->orderBy(TagModel::make()->getQualifiedKeyName())
             ->paginate($request->perPage());
 
-        $scoped = $page->getCollection()->filter(static fn (mixed $tag): bool => $tag instanceof Tag && $tag->scope_type !== null);
-        (new Collection($scoped->all()))->loadMissing('scope');
+        self::loadScopes($page->getCollection());
 
         return TagResource::collection($page)->response();
     }

@@ -32,6 +32,7 @@ final class ReorderTagsController extends Controller
 
         $reordered = $this->handle($request, $tagType)->reorder($this->bodyTag($request, $tagType, $validated['parent'] ?? null), $order);
         $this->share($request, $scope);
+        self::loadScopes($reordered);
 
         return TagResource::collection($reordered)->response();
     }
