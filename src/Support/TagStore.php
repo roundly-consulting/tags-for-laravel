@@ -35,10 +35,11 @@ final class TagStore
     /**
      * @param  string|null  $lookup  for a find-or-create: the string the tag is looked up by; a
      *                               live tag it names is returned instead of a duplicate error
+     * @param  bool  $locked  the caller already took the draft's locks ({@see self::lockAll()})
      */
-    public static function store(TagDraft $draft, ?string $lookup = null): StoredTag
+    public static function store(TagDraft $draft, ?string $lookup = null, bool $locked = false): StoredTag
     {
-        if ($draft->type->hierarchical) {
+        if ($draft->type->hierarchical && ! $locked) {
             self::lockTree($draft);
         }
 
@@ -118,22 +119,50 @@ final class TagStore
      */
     public static function lockTree(TagDraft $draft): void
     {
-        TreeLock::lock($draft->type->name, $draft->scopeKey);
+        self::lockAll([$draft]);
+    }
 
-        $holder = TagLookup::holders($draft->type, $draft->scopeKey, self::slugs($draft))
-            ->first(static fn (Tag $tag): bool => $tag->trashed());
-        $keys = [$draft->parent?->getKey()];
+    /**
+     * Before storing several drafts (one tagging call's new names): the tree locks they need,
+     * then one ascending sweep over every row any of them may lock or change — the slugs' holders,
+     * and in a tree the parent, the siblings a position shifts and a deleted holder's parent and
+     * subtree. A call with several names so takes its tag-row locks in key order, like every write.
+     *
+     * @param  list<TagDraft>  $drafts
+     */
+    public static function lockAll(array $drafts): void
+    {
+        $keys = [];
         $sets = [];
+        $trees = [];
 
-        if ($holder !== null) {
-            $keys = [...$keys, $holder->getKey(), $holder->parent_id];
-            $sets[] = TagModel::query()->withTrashed()->descendantsOf($holder);
+        foreach ($drafts as $draft) {
+            if ($draft->type->hierarchical || $draft->parent !== null || $draft->position !== null) {
+                $trees[$draft->type->name."\0".$draft->scopeKey] = $draft;
+            }
         }
 
-        if ($draft->position !== null) {
-            $under = $holder === null || $draft->placed ? $draft->parent?->getKey() : $holder->parent_id;
-            $siblings = TagModel::query()->where('type', $draft->type->name)->where('scope_key', $draft->scopeKey)->where('position', '>=', $draft->position);
-            $sets[] = $under === null ? $siblings->whereNull('parent_id') : $siblings->where('parent_id', $under);
+        ksort($trees);
+
+        foreach ($trees as $draft) {
+            TreeLock::lock($draft->type->name, $draft->scopeKey);
+        }
+
+        foreach ($drafts as $draft) {
+            $holders = TagLookup::holders($draft->type, $draft->scopeKey, self::slugs($draft));
+            $holder = $holders->first(static fn (Tag $tag): bool => $tag->trashed());
+            $keys = [...$keys, ...$holders->modelKeys(), $draft->parent?->getKey()];
+
+            if ($holder !== null && $draft->type->hierarchical) {
+                $keys[] = $holder->parent_id;
+                $sets[] = TagModel::query()->withTrashed()->descendantsOf($holder);
+            }
+
+            if ($draft->position !== null) {
+                $under = $holder === null || $draft->placed ? $draft->parent?->getKey() : $holder->parent_id;
+                $siblings = TagModel::query()->where('type', $draft->type->name)->where('scope_key', $draft->scopeKey)->where('position', '>=', $draft->position);
+                $sets[] = $under === null ? $siblings->whereNull('parent_id') : $siblings->where('parent_id', $under);
+            }
         }
 
         TreeLock::rows($keys, ...$sets);

@@ -183,3 +183,25 @@ test('tree_writes_lock_their_rows_in_one_key_ordered_sweep', function (Closure $
     }],
 ])->with(['own transaction' => false, 'host transaction' => true])
     ->skip(fn (): bool => ! RecordsLocks::available(), 'lock recording is a sqlite grammar');
+
+// FR-2: one call re-creating several deleted names locks their rows in one ascending sweep before
+// it restores any — not one sweep per name, in the order the names were given.
+test('a_multi_name_re_create_locks_its_rows_in_one_key_ordered_sweep', function (string $type): void {
+    $type === 'topic' && Tags::define('topic')->hierarchical()->freeForm();
+    $first = Tags::type($type)->make('First')->create();     // the lower key
+    $second = Tags::type($type)->make('Second')->create();
+    Tags::type($type)->delete($first);
+    Tags::type($type)->delete($second);
+    RecordsLocks::start();
+
+    $this->article->attachTags(['Second', 'First'], $type);
+
+    $tagRowLocks = array_values(array_filter(
+        array_column(LockRecorder::recorded(), 'sql'),
+        static fn (string $sql): bool => str_contains($sql, 'from "tags"'),
+    ));
+
+    expect($tagRowLocks[0] ?? '')->toContain('"tags"."id" in ('.$first->getKey().', '.$second->getKey().')')
+        ->and($first->fresh()?->trashed())->toBeFalse()
+        ->and($second->fresh()?->trashed())->toBeFalse();
+})->with(['tag', 'topic'])->skip(fn (): bool => ! RecordsLocks::available() || config('tags.primary_key_type') !== 'bigint', 'lock recording is a sqlite grammar');

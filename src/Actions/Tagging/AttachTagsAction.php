@@ -162,23 +162,31 @@ final readonly class AttachTagsAction
      */
     private static function createMissing(Model&Taggable $taggable, ResolvedSelection $resolved): array
     {
-        $tags = [];
+        $drafts = [];
 
         foreach ($resolved->missing as $name => $names) {
             $type = $resolved->types[$name];
             $scope = Taggings::creationScope($taggable, $type);
 
             foreach ($names as $map) {
-                $stored = TagStore::store(new TagDraft($type, $scope, ScopeKey::for($scope), $map, orphanAsRoot: true), TagName::lookup($map));
-
-                if ($stored->created) {
-                    event(new TagCreated($stored->tag));
-                } elseif ($stored->restored) {
-                    event(new TagRestored($stored->tag));
-                }
-
-                $tags[] = $stored;
+                $drafts[] = new TagDraft($type, $scope, ScopeKey::for($scope), $map, orphanAsRoot: true);
             }
+        }
+
+        // Every name's rows in one ascending sweep, before any is stored.
+        TagStore::lockAll($drafts);
+        $tags = [];
+
+        foreach ($drafts as $draft) {
+            $stored = TagStore::store($draft, TagName::lookup($draft->name), locked: true);
+
+            if ($stored->created) {
+                event(new TagCreated($stored->tag));
+            } elseif ($stored->restored) {
+                event(new TagRestored($stored->tag));
+            }
+
+            $tags[] = $stored;
         }
 
         return $tags;

@@ -65,9 +65,13 @@ final readonly class SyncTagsAction
 
             $scope = Taggings::creationScope($taggable, $type);
             $created = [];
+            $drafts = array_map(static fn (array $map): TagDraft => new TagDraft($type, $scope, ScopeKey::for($scope), $map, orphanAsRoot: true), array_values($missing));
 
-            foreach ($missing as $map) {
-                $stored = TagStore::store(new TagDraft($type, $scope, ScopeKey::for($scope), $map, orphanAsRoot: true), TagName::lookup($map));
+            // Every name's rows in one ascending sweep, before any is stored.
+            TagStore::lockAll($drafts);
+
+            foreach ($drafts as $draft) {
+                $stored = TagStore::store($draft, TagName::lookup($draft->name), locked: true);
 
                 if ($stored->created) {
                     event(new TagCreated($stored->tag));

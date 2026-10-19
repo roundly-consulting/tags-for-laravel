@@ -305,3 +305,36 @@ test('detach_counts_only_rows_it_deleted', function (): void {
         ->and(Tagging::query()->where('tag_id', $rock->getKey())->count())->toBe(1)
         ->and(Tag::query()->findOrFail($rock->getKey())->usage_count)->toBe(1);
 })->skip(fn (): bool => ! Racer::available(), 'needs a real engine and pcntl')->group('real-engine');
+
+// FR-2: a call re-creating several deleted names takes their rows in key order, whatever the
+// order of the names. Staged: a key-order locker holds the lower key and then asks for the
+// higher one, while a host-transaction attach of [higher, lower] runs in between.
+test('a_multi_name_re_create_and_a_key_ordered_writer_never_deadlock', function (): void {
+    $low = Tags::type('tag')->make('Low')->create();
+    $high = Tags::type('tag')->make('High')->create();
+    Tags::type('tag')->delete($low);
+    Tags::type('tag')->delete($high);
+    $article = Article::query()->create();
+    $racer = new Racer;
+    $parent = 'done';
+
+    try {
+        DB::transaction(function () use ($low, $high, $article, $racer): void {
+            Tag::query()->withTrashed()->whereKey($low->getKey())->lockForUpdate()->first();
+
+            $racer->run(static fn (): string => DB::connection('racer')->transaction(static function () use ($article): string {
+                Article::on('racer')->findOrFail($article->getKey())->attachTags(['High', 'Low']);
+
+                return 'attached';
+            }))->waitUntilBlockedOrDone();
+
+            Tag::query()->withTrashed()->whereKey($high->getKey())->lockForUpdate()->first();
+        });
+    } catch (QueryException $exception) {
+        $parent = 'error: '.$exception->getMessage();
+    }
+
+    expect($parent)->toBe('done')
+        ->and($racer->outcome())->toBe('attached')
+        ->and(Tagging::query()->where('taggable_id', $article->getKey())->count())->toBe(2);
+})->skip(fn (): bool => ! Racer::available(), 'needs a real engine and pcntl')->group('real-engine');
