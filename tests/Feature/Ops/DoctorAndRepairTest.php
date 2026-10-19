@@ -131,6 +131,26 @@ test('repair_removes_orphan_taggings', function (): void {
         ->and(Tag::query()->where('slug->en', 'live')->firstOrFail()->usage_count)->toBe(3);
 })->skip(fn (): bool => config('tags.primary_key_type') !== 'bigint', 'raw rows');
 
+// The documented recipe after a mass delete is `tags:repair --orphans` alone: it leaves the
+// counts of the tags it detached exact, without `--counts`.
+test('repair_orphans_keeps_usage_counts_exact', function (bool $dryRun): void {
+    $note = Note::query()->create(['body' => 'N']);
+    $kept = Note::query()->create(['body' => 'K']);
+    $note->attachTags(['rock', 'pop']);
+    $kept->attachTags(['rock']);
+    $drifted = Article::query()->create();
+    $drifted->attachTags(['jazz']);
+    Tag::query()->where('type', 'tag')->where('slug->en', 'jazz')->toBase()->update(['usage_count' => 7]);   // another drift
+
+    Note::query()->whereKey($note->getKey())->delete();   // a mass delete: no model event
+
+    $this->artisan('tags:repair', ['--orphans' => true, '--dry-run' => $dryRun])->assertSuccessful();
+
+    $counts = Tag::query()->where('type', 'tag')->orderBy('id')->get()->mapWithKeys(fn (Tag $tag): array => [$tag->slug => $tag->usage_count])->all();
+
+    expect($counts)->toBe($dryRun ? ['rock' => 2, 'pop' => 1, 'jazz' => 7] : ['rock' => 1, 'pop' => 0, 'jazz' => 7]);
+})->with(['repair' => false, 'dry run' => true]);
+
 test('doctor_reports_taggings_on_deleted_tags', function (): void {
     Article::query()->create()->attachTags(['rock', 'pop']);
     Tags::type('tag')->findOrFail('rock')->delete();

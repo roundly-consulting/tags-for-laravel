@@ -152,6 +152,9 @@ final readonly class RepairTagsAction
     }
 
     /**
+     * Taggings whose taggable row is gone: removed, and the usage counts of their tags recounted,
+     * so the documented recipe after a mass delete (`--orphans` alone) leaves exact counts.
+     *
      * @return array{0: int, 1: list<string>}
      */
     private function orphans(RepairOptions $options): array
@@ -159,6 +162,7 @@ final readonly class RepairTagsAction
         $types = Tagging::query()->distinct()->pluck('taggable_type')->filter(static fn (mixed $type): bool => is_string($type))->values()->all();
         $removed = 0;
         $unresolvable = [];
+        $affected = [];
 
         foreach ($types as $morph) {
             $class = Relation::getMorphedModel($morph) ?? $morph;
@@ -178,7 +182,23 @@ final readonly class RepairTagsAction
                 $orphans->where('type', $options->type);
             }
 
-            $removed += $options->dryRun ? $orphans->count() : $orphans->delete();
+            if ($options->dryRun) {
+                $removed += $orphans->count();
+
+                continue;
+            }
+
+            foreach ((clone $orphans)->distinct()->pluck('tag_id') as $key) {
+                if (is_int($key) || is_string($key)) {
+                    $affected[(string) $key] = $key;
+                }
+            }
+
+            $removed += $orphans->delete();
+        }
+
+        foreach (array_chunk(array_values($affected), self::CHUNK) as $keys) {
+            TagTransaction::run(static fn (): int => self::recount($keys, false));
         }
 
         return [$removed, $unresolvable];
