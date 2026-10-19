@@ -169,6 +169,21 @@ test('restore_by_slug_never_reaches_another_scope', function (): void {
     $this->postJson('/api/tags/label/telex/restore')->assertOk()->assertJsonPath('data.slug', 'telex');
 });
 
+test('restore_after_a_direct_delete_starts_clean_over_the_api', function (): void {
+    apiUser(admin: true);
+    $article = Article::query()->create();
+    $article->attachTags(['live', 'outdoor'], 'label');
+    $live = Tags::type('label')->findOrFail('live');
+    $live->delete();
+
+    $this->postJson('/api/tags/label/live/restore')
+        ->assertOk()
+        ->assertJsonPath('data.usage_count', 0)
+        ->assertJsonMissingPath('data.deleted_at');
+
+    expect($article->tagsOf('label')->pluck('slug')->all())->toBe(['outdoor']);
+});
+
 it('refuses writes to readers', function (): void {
     apiUser();
 

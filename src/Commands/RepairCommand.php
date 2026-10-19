@@ -18,7 +18,7 @@ final class RepairCommand extends Command
         {--paths : Recompute tree paths and depths}
         {--scope-keys : Recompute scope keys}
         {--counts : Recount usage counts}
-        {--orphans : Delete taggings whose model is gone}
+        {--orphans : Delete taggings whose model or tag is gone}
         {--type= : Only tags of this type}
         {--dry-run : Report without writing}';
 
@@ -49,6 +49,7 @@ final class RepairCommand extends Command
             ['cycles (left alone)', (string) $report->cycles],
             ['scope keys', (string) $report->scopeKeys],
             ['orphan taggings', (string) $report->orphans],
+            ['taggings on deleted tags', (string) $report->trashedTaggings],
             ['usage counts', (string) $report->counts],
         ]);
 

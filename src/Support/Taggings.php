@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Tags\Support;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use RoundlyConsulting\Tags\Contracts\Taggable;
 use RoundlyConsulting\Tags\Exceptions\UnsavedTaggableException;
+use RoundlyConsulting\Tags\Models\Tag;
 use RoundlyConsulting\Tags\Models\Tagging;
 use RoundlyConsulting\Tags\Types\TagType;
 
@@ -78,15 +80,21 @@ final class Taggings
 
     /**
      * The model's current taggings: tag key => type, optionally of one type, with a locking read
-     * when `$locked`.
+     * when `$locked`. Taggings of a deleted tag (a plain `$tag->delete()` leaves them behind) are
+     * not carried: they count against no max and no write touches them, unless
+     * `$includeDeletedTags` (the deletion hook removes every row of a model that is gone).
      *
      * @return array<string, string>
      */
-    public static function current(Model $taggable, ?string $type = null, bool $locked = false): array
+    public static function current(Model $taggable, ?string $type = null, bool $locked = false, bool $includeDeletedTags = false): array
     {
         $query = Tagging::query()
             ->where('taggable_type', $taggable->getMorphClass())
             ->where('taggable_id', $taggable->getKey());
+
+        if (! $includeDeletedTags) {
+            $query->whereIn('tag_id', self::liveTagKeys());
+        }
 
         if ($type !== null) {
             $query->where('type', $type);
@@ -103,5 +111,37 @@ final class Taggings
         }
 
         return $current;
+    }
+
+    /**
+     * The keys of every live tag, as a subquery: what a pivot read narrows to so a deleted tag's
+     * leftover taggings never count.
+     */
+    public static function liveTagKeys(): QueryBuilder
+    {
+        $tags = TagModel::make();
+
+        return TagModel::query()->select($tags->getQualifiedKeyName())->toBase();
+    }
+
+    /**
+     * Remove every tagging of a tag and zero its usage count — before a restore, so a tag a plain
+     * `$tag->delete()` soft-deleted without detaching comes back clean. On the designed path
+     * (`Tags::type($type)->delete()` detached everything) there is nothing to remove. Runs in the
+     * caller's transaction, after the caller locked the tag row.
+     *
+     * @return int the taggings removed
+     */
+    public static function purge(Tag $tag): int
+    {
+        $removed = Tagging::query()->where('tag_id', $tag->getKey())->delete();
+
+        if ($tag->usage_count !== 0) {
+            TagModel::query()->withTrashed()->whereKey($tag->getKey())->toBase()->update(['usage_count' => 0]);
+            $tag->usage_count = 0;
+            $tag->syncOriginalAttribute('usage_count');
+        }
+
+        return $removed;
     }
 }

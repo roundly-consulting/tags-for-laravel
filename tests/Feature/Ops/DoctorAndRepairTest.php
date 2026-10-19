@@ -126,6 +126,71 @@ test('repair_removes_orphan_taggings', function (): void {
         ->and(Tag::query()->where('slug->en', 'live')->firstOrFail()->usage_count)->toBe(3);
 })->skip(fn (): bool => config('tags.primary_key_type') !== 'bigint', 'raw rows');
 
+test('doctor_reports_taggings_on_deleted_tags', function (): void {
+    Article::query()->create()->attachTags(['rock', 'pop']);
+    Tags::type('tag')->findOrFail('rock')->delete();
+
+    $finding = collect(doctorFindings())->firstWhere('section', 'trashed');
+
+    expect($finding)->toBe([
+        'severity' => 'error',
+        'section' => 'trashed',
+        'message' => '1 tagging(s) point at deleted tags: run tags:repair --orphans.',
+    ]);
+
+    $this->artisan('tags:doctor')->assertFailed();
+});
+
+test('doctor_warns_about_live_tags_under_a_deleted_parent', function (): void {
+    $this->jazz->delete();
+
+    $findings = collect(doctorFindings());
+
+    expect($findings->where('section', 'trees')->values()->all())->toBe([[
+        'severity' => 'warning',
+        'section' => 'trees',
+        'message' => '1 live tag(s) sit under a deleted parent: restore the parent or move them.',
+    ]]);
+});
+
+test('repair_orphans_removes_taggings_on_deleted_tags', function (bool $dryRun): void {
+    $article = Article::query()->create();
+    $article->attachTags(['rock', 'pop']);
+    $rock = Tags::type('tag')->findOrFail('rock');
+    $rock->delete();
+
+    $report = Tags::repair(new RepairOptions(paths: false, scopeKeys: false, counts: false, orphans: true, dryRun: $dryRun));
+
+    expect($report->trashedTaggings)->toBe(1)
+        ->and($report->orphans)->toBe(0)
+        ->and($report->isClean())->toBeFalse()
+        ->and(Tagging::query()->count())->toBe($dryRun ? 2 : 1)
+        ->and(Tag::query()->withTrashed()->findOrFail($rock->getKey())->usage_count)->toBe($dryRun ? 1 : 0)
+        ->and($article->tagsOf('tag')->pluck('slug')->all())->toBe(['pop']);
+
+    if (! $dryRun) {
+        expect(Tags::repair(new RepairOptions(dryRun: true))->isClean())->toBeTrue();
+    }
+})->with(['dry run' => [true], 'repair' => [false]]);
+
+it('prints taggings on deleted tags in the repair report', function (): void {
+    Article::query()->create()->attachTags(['rock']);
+    Tags::type('tag')->findOrFail('rock')->delete();
+
+    $this->artisan('tags:repair', ['--orphans' => true])
+        ->expectsTable(['Repair', 'Fixed'], [
+            ['paths', '0'],
+            ['cycles (left alone)', '0'],
+            ['scope keys', '0'],
+            ['orphan taggings', '0'],
+            ['taggings on deleted tags', '1'],
+            ['usage counts', '0'],
+        ])
+        ->assertSuccessful();
+
+    expect(Tagging::query()->count())->toBe(0);
+});
+
 test('doctor_reports_missing_locale_indexes', function (): void {
     $table = 'tags';
     DB::statement('drop index '.(DB::getDriverName() === 'mysql' ? '`'.IndexNames::index($table, 'slug', 'sk').'` on `tags`' : '"'.IndexNames::index($table, 'slug', 'sk').'"'));

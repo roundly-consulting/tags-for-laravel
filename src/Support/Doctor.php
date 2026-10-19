@@ -48,7 +48,7 @@ final readonly class Doctor
 
         $this->types($error);
         $this->limits($error);
-        $this->trees($error);
+        $this->trees($error, $warning);
         $this->indexes($error);
         $this->keyTypes($error, $warning);
         $this->scopes($warning);
@@ -61,6 +61,10 @@ final readonly class Doctor
 
         if ($report->orphans > 0) {
             $warning('orphans', "{$report->orphans} tagging(s) point at a model that no longer exists: run tags:repair --orphans.");
+        }
+
+        if ($report->trashedTaggings > 0) {
+            $error('trashed', "{$report->trashedTaggings} tagging(s) point at deleted tags: run tags:repair --orphans.");
         }
 
         foreach ($report->unresolvableTypes as $type) {
@@ -116,6 +120,7 @@ final readonly class Doctor
 
             $over = Tagging::query()
                 ->where('type', $name)
+                ->whereIn('tag_id', Taggings::liveTagKeys())
                 ->select('taggable_type', 'taggable_id')
                 ->groupBy('taggable_type', 'taggable_id')
                 ->havingRaw('count(*) > ?', [$type->max])
@@ -130,8 +135,9 @@ final readonly class Doctor
 
     /**
      * @param  callable(string, string): void  $error
+     * @param  callable(string, string): void  $warning
      */
-    private function trees(callable $error): void
+    private function trees(callable $error, callable $warning): void
     {
         foreach ($this->registry->names() as $name) {
             $type = $this->safely($name);
@@ -149,6 +155,15 @@ final readonly class Doctor
 
         if ($report->cycles > 0) {
             $error('trees', "{$report->cycles} tag(s) sit in a parent cycle: fix their parent_id by hand.");
+        }
+
+        $tags = TagModel::make();
+        $orphaned = TagModel::query()
+            ->whereIn('parent_id', TagModel::query()->onlyTrashed()->select($tags->getQualifiedKeyName())->toBase())
+            ->count();
+
+        if ($orphaned > 0) {
+            $warning('trees', "{$orphaned} live tag(s) sit under a deleted parent: restore the parent or move them.");
         }
 
         if ($report->scopeKeys > 0) {

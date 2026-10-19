@@ -9,6 +9,7 @@ use RoundlyConsulting\Tags\Events\TagRestored;
 use RoundlyConsulting\Tags\Exceptions\InvalidTagHierarchyException;
 use RoundlyConsulting\Tags\Exceptions\TagNotFoundException;
 use RoundlyConsulting\Tags\Models\Tag;
+use RoundlyConsulting\Tags\Support\Taggings;
 use RoundlyConsulting\Tags\Support\TagModel;
 use RoundlyConsulting\Tags\Support\TagPath;
 use RoundlyConsulting\Tags\Support\TagTransaction;
@@ -16,9 +17,10 @@ use RoundlyConsulting\Tags\Support\TreeLock;
 use RoundlyConsulting\Tags\Types\TagTypeRegistry;
 
 /**
- * Bring a deleted tag back, without its old taggings (deletion detached them). A child of a
- * deleted parent is refused; its path and depth are recomputed from the parent's current place,
- * because the parent may have moved meanwhile. Restoring a parent restores only that tag.
+ * Bring a deleted tag back, without its old taggings: deletion detached them, and whatever a plain
+ * `$tag->delete()` left behind is removed first, so a restore never relabels old models. A child
+ * of a deleted parent is refused; its path and depth are recomputed from the parent's current
+ * place, because the parent may have moved meanwhile. Restoring a parent restores only that tag.
  */
 final readonly class RestoreTagAction
 {
@@ -57,6 +59,7 @@ final readonly class RestoreTagAction
                 $fresh->forceFill(['path' => TagPath::under($parent), 'depth' => TagPath::depthUnder($parent)]);
             }
 
+            Taggings::purge($fresh);
             $fresh->restore();
             $rewrite->execute($fresh, $oldPrefix, $fresh->depth - $oldDepth);
 

@@ -6,7 +6,7 @@ namespace RoundlyConsulting\Tags\DataTransferObjects;
 
 /**
  * What `Tags::repair()` fixes: tree paths and depths, scope keys, usage counts, and taggings
- * whose model is gone — optionally for one type, optionally as a dry run.
+ * whose model or tag is gone (`orphans`) — optionally for one type, optionally as a dry run.
  */
 final readonly class RepairOptions
 {

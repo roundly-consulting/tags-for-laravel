@@ -84,7 +84,7 @@ final class TagScopes
         $model = $query->getModel();
 
         if (TagSelection::of($tags)->isEmpty()) {
-            $sub = self::taggings($model);
+            $sub = self::taggings($model)->whereIn('tag_id', Taggings::liveTagKeys());
 
             if ($type !== null) {
                 $sub->where('type', app(TagTypeRegistry::class)->resolve($type)->name);
@@ -114,7 +114,7 @@ final class TagScopes
 
         $query->whereIn(
             $model->getQualifiedKeyName(),
-            self::taggings($model)->where('type', app(TagTypeRegistry::class)->resolve($type)->name),
+            self::taggings($model)->where('type', app(TagTypeRegistry::class)->resolve($type)->name)->whereIn('tag_id', Taggings::liveTagKeys()),
         );
     }
 

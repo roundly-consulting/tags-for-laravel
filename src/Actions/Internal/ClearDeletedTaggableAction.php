@@ -29,7 +29,7 @@ final readonly class ClearDeletedTaggableAction
         return TagTransaction::run(static fn (): TagChanges => $apply->execute(
             $taggable,
             [],
-            array_map(strval(...), array_keys(Taggings::current($taggable))),
+            array_map(strval(...), array_keys(Taggings::current($taggable, includeDeletedTags: true))),
         ));
     }
 }

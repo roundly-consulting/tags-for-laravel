@@ -40,6 +40,10 @@ use RoundlyConsulting\Translatable\Contracts\Translatable;
  * goes through `Tags::type($type)` and `Tags::for($model)`, which keep slugs, paths, usage counts
  * and events right under concurrent writers.
  *
+ * Delete through `Tags::type($type)->delete($tag)`. A plain `$tag->delete()` (an admin panel)
+ * soft-deletes without detaching: reads ignore it, a restore starts clean, and
+ * `tags:repair --orphans` removes the leftover taggings.
+ *
  * @property int|string $id
  * @property string $type
  * @property string|null $scope_type

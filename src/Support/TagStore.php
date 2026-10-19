@@ -58,6 +58,8 @@ final class TagStore
         $tag = $trashed->first();
 
         if ($tag !== null) {
+            // A plain `$tag->delete()` detached nothing: its old taggings never come back.
+            Taggings::purge($tag);
             self::fill($tag, $draft);
             $tag->restore();
 

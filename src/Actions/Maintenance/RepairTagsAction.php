@@ -18,8 +18,9 @@ use RoundlyConsulting\Tags\Support\TagPath;
 /**
  * Put derived data back in line with the facts: paths and depths from the parent chain (a cycle
  * written past the package is reported, not placed), scope keys from the scope morph, taggings
- * whose taggable row is gone (a mass delete fires no model event), then usage counts from the
- * taggings. A dry run counts without writing.
+ * whose taggable row is gone (a mass delete fires no model event) or whose tag is deleted (a
+ * plain `$tag->delete()` detaches nothing), then usage counts from the taggings. A dry run counts
+ * without writing.
  */
 final readonly class RepairTagsAction
 {
@@ -28,9 +29,10 @@ final readonly class RepairTagsAction
         [$paths, $cycles] = $options->paths ? $this->paths($options) : [0, 0];
         $scopeKeys = $options->scopeKeys ? $this->scopeKeys($options) : 0;
         [$orphans, $unresolvable] = $options->orphans ? $this->orphans($options) : [0, []];
+        $trashedTaggings = $options->orphans ? $this->trashedTaggings($options) : 0;
         $counts = $options->counts ? $this->counts($options) : 0;
 
-        return new RepairReport($paths, $cycles, $scopeKeys, $counts, $orphans, $unresolvable, $options->dryRun);
+        return new RepairReport($paths, $cycles, $scopeKeys, $counts, $orphans, $unresolvable, $options->dryRun, $trashedTaggings);
     }
 
     /**
@@ -138,6 +140,33 @@ final readonly class RepairTagsAction
         }
 
         return [$removed, $unresolvable];
+    }
+
+    /**
+     * Taggings of deleted tags: removed, and those tags' usage counts zeroed.
+     */
+    private function trashedTaggings(RepairOptions $options): int
+    {
+        $tags = TagModel::make();
+        $trashed = TagModel::query()->onlyTrashed()->select($tags->getQualifiedKeyName());
+
+        if ($options->type !== null) {
+            $trashed->where('type', $options->type);
+        }
+
+        $taggings = Tagging::query()->whereIn('tag_id', $trashed->toBase());
+
+        if ($options->dryRun) {
+            return $taggings->count();
+        }
+
+        $removed = $taggings->delete();
+
+        if ($removed > 0) {
+            (clone $trashed)->where('usage_count', '>', 0)->toBase()->update(['usage_count' => 0]);
+        }
+
+        return $removed;
     }
 
     private function counts(RepairOptions $options): int
