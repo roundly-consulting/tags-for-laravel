@@ -69,8 +69,27 @@ test('scope_param_requires_the_scope_ability', function (): void {
     apiUser();
 
     $this->getJson('/api/tags/label?scope=team:'.$this->acme->getKey())->assertOk();
-    $this->getJson('/api/tags/label?scope=team:'.$this->globex->getKey())->assertForbidden();
+    $this->getJson('/api/tags/label?scope=team:'.$this->globex->getKey())->assertUnprocessable()->assertJson(['code' => 'unknown_alias']);
 });
+
+// A scope the caller may not use answers exactly like one that does not exist, so the scope
+// reference reveals no tenant ids.
+test('a_forbidden_scope_answers_exactly_like_a_missing_one', function (): void {
+    Gate::define('tags.scope', static fn (User $user, Model $scope): bool => false);
+    Gate::define('tags.manage', static fn (): bool => true);
+    apiUser();
+    $missing = (int) Team::query()->max('id') + 1000;
+
+    foreach (['GET' => '/api/tags/label', 'POST' => '/api/tags/label', 'GET ' => '/api/tags/label/suggest?q=x&'] as $method => $url) {
+        $join = str_contains($url, '?') ? '' : '?';
+        $forbidden = $this->json(trim($method), $url.$join.'scope=team:'.$this->globex->getKey(), ['name' => ['en' => 'X']]);
+        $absent = $this->json(trim($method), $url.$join.'scope=team:'.$missing, ['name' => ['en' => 'X']]);
+
+        expect($forbidden->status())->toBe(422)
+            ->and($forbidden->status())->toBe($absent->status())
+            ->and($forbidden->json())->toBe($absent->json());
+    }
+})->skip(fn (): bool => config('tags.key_type') !== 'bigint', 'int keys');
 
 test('foreign_scope_tags_answer_like_missing_ones', function (): void {
     defineTagGates();
@@ -132,7 +151,8 @@ test('undefined_abilities_deny', function (): void {
     apiUser(admin: true);
 
     $this->postJson('/api/tags/label', ['name' => ['en' => 'Live']])->assertForbidden();
-    $this->getJson('/api/tags/label?scope=team:'.$this->acme->getKey())->assertForbidden();
+    // An undefined scope ability refuses the scope like a missing one.
+    $this->getJson('/api/tags/label?scope=team:'.$this->acme->getKey())->assertUnprocessable()->assertJson(['code' => 'unknown_alias']);
     // Reads need no ability unless `view` names one.
     $this->getJson('/api/tags/label')->assertOk();
 

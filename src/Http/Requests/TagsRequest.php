@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Tags\Http\Requests;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Http\FormRequest;
+use RoundlyConsulting\Tags\Exceptions\UnknownMorphAliasException;
 use RoundlyConsulting\Tags\Http\Access;
 use RoundlyConsulting\Tags\Support\Messages;
 use RoundlyConsulting\Tags\Support\MorphAliases;
@@ -53,7 +54,9 @@ abstract class TagsRequest extends FormRequest
 
     /**
      * The scope the request targets: reads see it plus the global tags, writes go to it. Null
-     * for global tags. Requires the `tags.scope` ability on the scope model.
+     * for global tags. Requires the `tags.scope` ability on the scope model; a scope the caller
+     * may not use answers exactly like one that does not exist (422 `unknown_alias`), so the
+     * reference reveals no tenant ids.
      */
     public function scopeModel(): ?Model
     {
@@ -66,8 +69,8 @@ abstract class TagsRequest extends FormRequest
         $reference = $this->validated('scope');
         $scope = is_string($reference) && $reference !== '' ? MorphAliases::scope($reference) : null;
 
-        if ($scope !== null) {
-            Access::authorizeScope($this, $scope);
+        if ($scope !== null && ! Access::canUseScope($this, $scope)) {
+            throw UnknownMorphAliasException::missing('scope');
         }
 
         $this->attributes->set(self::SCOPE, $scope);

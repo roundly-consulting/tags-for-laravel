@@ -46,11 +46,12 @@ final class Access
         }
     }
 
-    public static function authorizeScope(Request $request, Model $scope): void
+    /**
+     * Whether the caller may use the scope model a `?scope=` reference names.
+     */
+    public static function canUseScope(Request $request, Model $scope): bool
     {
-        if (! self::gate($request)->allows(TagsConfig::scopeAbility(), [$scope])) {
-            throw new AuthorizationException;
-        }
+        return self::gate($request)->allows(TagsConfig::scopeAbility(), [$scope]);
     }
 
     /**
