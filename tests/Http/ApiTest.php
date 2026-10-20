@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\DB;
 use RoundlyConsulting\Tags\Exceptions\InvalidTagException;
 use RoundlyConsulting\Tags\Facades\Tags;
 use RoundlyConsulting\Tags\Models\Tag;
+use RoundlyConsulting\Tags\Support\TagAttributes;
 use RoundlyConsulting\Tags\Tests\Fixtures\Models\Article;
 use RoundlyConsulting\Tags\Tests\Fixtures\Models\ScopedArticle;
 use RoundlyConsulting\Tags\Tests\Fixtures\Models\Team;
@@ -216,6 +217,31 @@ test('a_position_past_the_column_range_is_refused', function (): void {
 
     expect(fn () => Tags::type('genre')->make('Far')->position(3_000_000_000))->toThrow(InvalidTagException::class)
         ->and(Tags::type('genre')->make('Near')->position(2_147_483_647)->create()->position)->toBe(2_147_483_647);
+});
+
+// A move to a later index under the same parent closes the slot it leaves, so the index
+// counts the siblings without it.
+test('a_same_parent_move_to_a_later_index_lands_there', function (): void {
+    apiUser(admin: true);
+    $genres = Tags::type('genre');
+    $parent = $genres->make('Parent')->create();
+    $a = $genres->make('A')->under($parent)->create();
+    $b = $genres->make('B')->under($parent)->create();
+    $c = $genres->make('C')->under($parent)->create();
+    $order = static fn (): array => $parent->children()->get()->pluck('slug')->all();
+
+    $genres->move($a, $parent, 1);
+    expect($order())->toBe(['b', 'a', 'c']);
+
+    $genres->reorder($parent, [$a, $b, $c]);
+    $genres->move($a, $parent, 2);
+    expect($order())->toBe(['b', 'c', 'a']);
+
+    $genres->reorder($parent, [$a, $b, $c]);
+    $this->postJson("/api/tags/genre/{$a->getKey()}/move", ['parent' => (string) $parent->getKey(), 'position' => 1])
+        ->assertOk()
+        ->assertJsonPath('data.position', 1);
+    expect($order())->toBe(['b', 'a', 'c']);
 });
 
 // query-builder splits a filter value on commas; the search is one term all the same.

@@ -45,12 +45,14 @@ final readonly class MoveTagAction
             TreeLock::lock($tag->type, $tag->scope_key);
 
             // The tag, both parents, its subtree (deleted rows move too) and the siblings a position
-            // shifts: locked in key order before anything is read with a lock.
+            // shifts — after the slot it leaves, too, for a later index under the same parent:
+            // locked in key order before anything is read with a lock.
             $known = TagModel::query()->withTrashed()->whereKey($tag->getKey())->first();
+            $closing = $known !== null && $position !== null && self::closesItsSlot($known, $under, $position);
             TreeLock::rows(
                 [$tag->getKey(), $under?->getKey(), $known?->parent_id],
                 ...($known === null ? [] : [TagModel::query()->withTrashed()->descendantsOf($known)]),
-                ...($position === null ? [] : [TagStore::siblings($tag->type, $tag->scope_key, $under, $tag)->where('position', '>=', $position)]),
+                ...($position === null ? [] : [TagStore::siblings($tag->type, $tag->scope_key, $under, $tag)->where('position', $closing ? '>' : '>=', $closing ? $known->position : $position)]),
             );
 
             $fresh = TreeLock::read(TagModel::query()->whereKey($tag->getKey()))->first() ?? throw TagNotFoundException::trashed();
@@ -79,6 +81,11 @@ final readonly class MoveTagAction
             $oldPrefix = TagPath::subtreePrefix($fresh);
             $oldDepth = $fresh->depth;
 
+            if ($position !== null && self::closesItsSlot($fresh, $parent, $position)) {
+                // Out of its slot first, so a later index counts the siblings without it.
+                TagStore::siblings($fresh->type, $fresh->scope_key, $parent, $fresh)->where('position', '>', $fresh->position)->decrement('position');
+            }
+
             $fresh->forceFill([
                 'parent_id' => $parent?->getKey(),
                 'path' => TagPath::under($parent),
@@ -92,5 +99,16 @@ final readonly class MoveTagAction
 
             return $fresh;
         });
+    }
+
+    /**
+     * Whether the move keeps the parent and goes to a later index: the slot it leaves closes first.
+     */
+    private static function closesItsSlot(Tag $tag, ?Tag $under, int $position): bool
+    {
+        $from = $tag->parent_id === null ? null : (string) $tag->parent_id;
+        $to = $under === null ? null : (string) $under->getKey();
+
+        return $from === $to && $tag->position < $position;
     }
 }
