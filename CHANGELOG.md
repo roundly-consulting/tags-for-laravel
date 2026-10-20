@@ -16,6 +16,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
   still renders its basename, and `tags.resources.scope` still swaps the resource.
 - A serialised tag's `pivot` no longer carries `taggable_type` — without a morph map it was the
   host model's class name. The attribute is still there on the `Tagging` model.
+- Maintenance: requires package-toolkit `^1.4.0`; the opt-in API's off-by-default switch now uses
+  the toolkit's `enabledByDefault` (behaviour unchanged).
 
 ### Fixed
 
