@@ -28,6 +28,21 @@ test('bigint_keys_stay_within_the_signed_64_bit_range', function (mixed $key, bo
     'a sign' => ['-1', false],
 ]);
 
+test('canonical_keys_have_one_spelling_per_key_type', function (string $type, mixed $key, string $canonical): void {
+    config()->set('tags.primary_key_type', $type);
+
+    expect(KeyShape::canonical($key))->toBe($canonical);
+})->with([
+    'a bigint' => ['bigint', 42, '42'],
+    'leading zeros' => ['bigint', '0042', '42'],
+    'zeros only' => ['bigint', '000', '0'],
+    'not a bigint' => ['bigint', 'abc', 'abc'],
+    'a float' => ['bigint', 1.5, '1.5'],
+    'null' => ['bigint', null, ''],
+    'an upper-case uuid' => ['uuid', '01A1583B-6A99-7231-97E5-7FE9CD84E981', '01a1583b-6a99-7231-97e5-7fe9cd84e981'],
+    'a lower-case ulid' => ['ulid', '01hzxq7m8b6v1kq4p3r2s5t6v7', '01HZXQ7M8B6V1KQ4P3R2S5T6V7'],
+]);
+
 // A key with leading zeros is the same key: the database finds the row, so every lookup in PHP
 // must find it too.
 test('non_canonical_keys_resolve_like_canonical_ones', function (): void {
