@@ -3,9 +3,12 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
+use RoundlyConsulting\Tags\Events\TagDeleted;
 use RoundlyConsulting\Tags\Exceptions\DuplicateTagException;
 use RoundlyConsulting\Tags\Facades\Tags;
 use RoundlyConsulting\Tags\Models\Tag;
+use RoundlyConsulting\Tags\Tests\Fixtures\Models\Article;
 use RoundlyConsulting\Tags\Tests\Support\Racer;
 
 /**
@@ -83,4 +86,31 @@ test('concurrent_recreates_restore_once', function (): void {
     expect($racer->outcome())->toBe((string) $rock->getKey())
         ->and(Tag::query()->withTrashed()->count())->toBe(1)
         ->and($rock->fresh()?->trashed())->toBeFalse();
+})->skip(fn (): bool => ! Racer::available(), 'needs a real engine and pcntl')->group('real-engine');
+
+// A flat type takes no tree lock: the second of two deletes waits on the tag row, then finds it
+// deleted — it returns the deleted tag and announces nothing.
+test('concurrent_flat_deletes_fire_one_event', function (): void {
+    $rock = Tags::type('tag')->make('Rock')->create();
+    Article::query()->create()->attachTags($rock);
+    $detached = [];
+    Event::listen(TagDeleted::class, static function (TagDeleted $event) use (&$detached): void {
+        $detached[] = $event->detached;
+    });
+    $racer = new Racer;
+
+    DB::transaction(function () use ($racer, $rock, &$detached): void {
+        Tags::type('tag')->delete($rock);
+
+        $racer->run(static function () use ($rock, &$detached): string {
+            $detached = [];
+            $result = Tags::type('tag')->delete($rock);
+
+            return json_encode(['trashed' => $result->trashed(), 'events' => $detached], JSON_THROW_ON_ERROR);
+        })->waitUntilBlockedOrDone();
+    });
+
+    expect($racer->outcome())->toBe('{"trashed":true,"events":[]}')
+        ->and($detached)->toBe([1])
+        ->and($rock->fresh()?->trashed())->toBeTrue();
 })->skip(fn (): bool => ! Racer::available(), 'needs a real engine and pcntl')->group('real-engine');

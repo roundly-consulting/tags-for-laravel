@@ -48,7 +48,10 @@ final readonly class DeleteTagAction
                 );
             }
 
-            $fresh = TreeLock::read(TagModel::query()->withTrashed()->whereKey($tag->getKey()))->first()
+            // A flat type takes no tree lock: its one tag row is locked here, so a second delete
+            // waits for the first and then sees the row deleted (as a restore does).
+            $query = TagModel::query()->withTrashed()->whereKey($tag->getKey());
+            $fresh = ($type->hierarchical ? TreeLock::read($query) : $query->lockForUpdate())->first()
                 ?? throw TagNotFoundException::generic();
 
             if ($fresh->trashed()) {
