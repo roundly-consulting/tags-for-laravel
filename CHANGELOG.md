@@ -34,8 +34,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
   tag of that name; attaching still prefers the scope's tag.
 - The API places a tag at every position the `integer` rule accepts (`1.0`, `"+1"`, `1e0`)
   instead of silently appending it.
-- `Tags::fake()` no longer counts a restore of a live tag, an update that changed nothing or a
-  second delete of a deleted tag as a restore, update or delete.
+- `Tags::fake()` no longer counts a restore of a live tag, an update that changed nothing, a
+  second delete of a deleted tag, a move to the tag's current parent and position or a reorder to
+  the current order as a restore, update, delete, move or reorder.
 - `assertCleared($model, $type)` passes after `clearTags()` or the deletion hook, which clear
   every type.
 - `toHaveTags()` and `toHaveNoTags($type)` read the database, never a `tags` relation loaded

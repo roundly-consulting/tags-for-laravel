@@ -140,9 +140,10 @@ test('fake_naming_rule_is_pinned', function (): void {
 test('assert_tags_reordered_accepts_an_enum', function (): void {
     Tags::define(EventTagType::Category)->hierarchical();
     $fake = Tags::fake();
-    $jazz = Tags::type(EventTagType::Category)->make('Jazz')->create();
+    Tags::type(EventTagType::Category)->make('Jazz')->create();
+    $rock = Tags::type(EventTagType::Category)->make('Rock')->create();
 
-    Tags::type(EventTagType::Category)->reorder(null, [$jazz]);
+    Tags::type(EventTagType::Category)->reorder(null, [$rock]);
 
     $fake->assertTagsReordered(EventTagType::Category);
     $fake->assertTagsReordered('events:category');
@@ -166,7 +167,7 @@ test('fake_covers_every_operation', function (): void {
         'create_tag' => [fn () => $genres()->make('Jaz')->create(), fn (TagsFake $fake) => $fake->assertTagCreated()],
         'find_or_create_tag' => [fn () => $genres()->findOrCreate('Rock'), fn (TagsFake $fake) => $fake->assertTagCreated()],
         'update_tag' => [fn () => $genres()->rename($genres()->findOrFail('jaz'), 'Jazz'), fn (TagsFake $fake) => $fake->assertTagUpdated()],
-        'move_tag' => [fn () => $genres()->move($genres()->findOrFail('rock'), $genres()->findOrFail('jazz')), fn (TagsFake $fake) => $fake->assertTagMoved()],
+        'move_tag' => [fn () => $genres()->move($genres()->findOrFail('rock'), null, 0), fn (TagsFake $fake) => $fake->assertTagMoved()],
         'reorder_tags' => [fn () => $genres()->reorder(null, [$genres()->findOrFail('jazz')]), fn (TagsFake $fake) => $fake->assertTagsReordered('genre')],
         'delete_tag' => [fn () => $genres()->delete($genres()->findOrFail('rock')), fn (TagsFake $fake) => $fake->assertTagDeleted()],
         'restore_tag' => [fn () => $genres()->restore($genres()->findTrashed('rock') ?? throw new RuntimeException('rock is not deleted')), fn (TagsFake $fake) => $fake->assertTagRestored()],
@@ -325,6 +326,38 @@ test('fake_ignores_no_op_catalog_calls', function (): void {
 
     $fake->assertTagRestored(fn (Tag $tag): bool => $tag->is($live));
     $fake->assertTagUpdated(fn (Tag $tag): bool => $tag->name === 'Live music');
+});
+
+// A move to where the tag already is, or a reorder to the current order, fires no event: the fake's
+// move and reorder assertions skip it too, and `recorded()` still lists it.
+test('fake_ignores_no_op_moves_and_reorders', function (): void {
+    Tags::define('genre')->hierarchical();
+    $music = Tags::type('genre')->make('Music')->create();
+    $rock = Tags::type('genre')->make('Rock')->create();
+    $jazz = Tags::type('genre')->make('Jazz')->under($music)->create();
+    $fake = Tags::fake();
+    $genres = static fn (): TypeTags => Tags::type('genre');
+
+    $genres()->move($jazz, $music, 0);
+    $genres()->move($rock, null, 1);
+    $genres()->move($rock, null);
+    $genres()->reorder(null, [$music, $rock]);
+    $genres()->reorder($music, [$jazz]);
+
+    $fake->assertNoTagMoved();
+    $fake->assertNoTagsReordered();
+    expect($fake->recorded(TagOperation::MoveTag))->toHaveCount(3)
+        ->and($fake->recorded(TagOperation::ReorderTags))->toHaveCount(2)
+        ->and(fn () => $fake->assertTagMoved())->toThrow(ExpectationFailedException::class, 'Expected a tag to be moved, but none was.')
+        ->and(fn () => $fake->assertTagsReordered())->toThrow(ExpectationFailedException::class, 'Expected tags to be reordered, but none were.');
+
+    $genres()->move($rock, null, 0);
+    $genres()->reorder(null, [$music, $rock]);
+
+    $fake->assertTagMoved(fn (Tag $tag): bool => $tag->is($rock));
+    $fake->assertTagsReordered('genre');
+    expect(fn () => $fake->assertNoTagMoved())->toThrow(ExpectationFailedException::class, 'but 1 were.')
+        ->and(fn () => $fake->assertNoTagsReordered())->toThrow(ExpectationFailedException::class, 'but 1 reorders');
 });
 
 // A clear of every type (`clearTags()`, the deletion hook) clears each type too.

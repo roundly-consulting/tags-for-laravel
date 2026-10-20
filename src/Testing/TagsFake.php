@@ -6,14 +6,18 @@ namespace RoundlyConsulting\Tags\Testing;
 
 use BackedEnum;
 use Closure;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use PHPUnit\Framework\Assert as PHPUnit;
 use RoundlyConsulting\Tags\Contracts\Taggable;
 use RoundlyConsulting\Tags\DataTransferObjects\RepairReport;
 use RoundlyConsulting\Tags\Enums\TagOperation;
 use RoundlyConsulting\Tags\Models\Tag;
+use RoundlyConsulting\Tags\Support\KeyShape;
+use RoundlyConsulting\Tags\Support\ScopeKey;
 use RoundlyConsulting\Tags\Support\TagModel;
 use RoundlyConsulting\Tags\Support\TagSlugs;
+use RoundlyConsulting\Tags\Support\TagStore;
 use RoundlyConsulting\Tags\TagsManager;
 use RoundlyConsulting\Tags\Types\TagTypeRegistry;
 use RoundlyConsulting\Translatable\Facades\Translatable;
@@ -33,7 +37,8 @@ final class TagsFake extends TagsManager
     private array $recorded = [];
 
     /**
-     * Recorded deletes of a tag that was already deleted: nothing happened.
+     * Recorded calls that changed nothing: a delete of a tag that was already deleted, a move to
+     * where the tag already was, a reorder to the current order.
      *
      * @var list<RecordedTagOperation>
      */
@@ -46,11 +51,18 @@ final class TagsFake extends TagsManager
 
     public function perform(TagOperation $operation, string $action, Closure $execute, array $context = []): mixed
     {
-        // A delete returns the deleted tag either way: only the row before the call tells a no-op.
+        // A delete returns the deleted tag and a reorder the siblings either way: only the rows
+        // before the call tell a no-op.
         $tag = $context['tag'] ?? null;
         $noOp = $operation === TagOperation::DeleteTag && $tag instanceof Tag && ! TagModel::query()->whereKey($tag->getKey())->exists();
+        $positions = $operation === TagOperation::ReorderTags ? self::siblingPositions($context) : null;
 
         $result = parent::perform($operation, $action, $execute, $context);
+
+        // The real actions' signal: a move that saved nothing, a reorder that changed no position.
+        $noOp = $noOp
+            || ($operation === TagOperation::MoveTag && $result instanceof Tag && ! $result->wasChanged())
+            || ($positions !== null && $result instanceof Collection && self::keptPositions($positions, $result->all()));
 
         $this->recorded[] = $recorded = new RecordedTagOperation($operation, $context, $result);
 
@@ -324,13 +336,14 @@ final class TagsFake extends TagsManager
     }
 
     /**
-     * Siblings were reordered, optionally of one type.
+     * Siblings were reordered (a reorder to the current order does not count), optionally of one
+     * type.
      */
     public function assertTagsReordered(string|BackedEnum|null $type = null): void
     {
         $type = $type === null ? null : TagTypeRegistry::nameOf($type);
         $matching = array_filter(
-            $this->recorded(TagOperation::ReorderTags),
+            $this->reorders(),
             static fn (RecordedTagOperation $recorded): bool => $type === null || ($recorded->context['type'] ?? null) === $type,
         );
 
@@ -341,10 +354,61 @@ final class TagsFake extends TagsManager
 
     public function assertNoTagsReordered(): void
     {
-        PHPUnit::assertEmpty(
+        $reorders = $this->reorders();
+
+        PHPUnit::assertEmpty($reorders, sprintf('Expected no tags to be reordered, but %d reorders were recorded.', count($reorders)));
+    }
+
+    /**
+     * The recorded reorders that changed a position.
+     *
+     * @return list<RecordedTagOperation>
+     */
+    private function reorders(): array
+    {
+        return array_values(array_filter(
             $this->recorded(TagOperation::ReorderTags),
-            sprintf('Expected no tags to be reordered, but %d reorders were recorded.', count($this->recorded(TagOperation::ReorderTags))),
-        );
+            fn (RecordedTagOperation $recorded): bool => ! in_array($recorded, $this->noOps, true),
+        ));
+    }
+
+    /**
+     * The positions of the live siblings a reorder is about to order, by canonical key.
+     *
+     * @param  array<string, mixed>  $context
+     * @return array<string, int>
+     */
+    private static function siblingPositions(array $context): array
+    {
+        $type = $context['type'] ?? null;
+        $scope = $context['scope'] ?? null;
+        $parent = $context['parent'] ?? null;
+        $positions = [];
+
+        if (is_string($type) && ($scope === null || $scope instanceof Model) && ($parent === null || $parent instanceof Tag)) {
+            foreach (TagStore::siblings($type, ScopeKey::for($scope), $parent)->get() as $sibling) {
+                $positions[KeyShape::canonical($sibling->getKey())] = $sibling->position;
+            }
+        }
+
+        return $positions;
+    }
+
+    /**
+     * Whether every sibling of a reorder's result already sat at its new index.
+     *
+     * @param  array<string, int>  $positions
+     * @param  array<array-key, mixed>  $ordered
+     */
+    private static function keptPositions(array $positions, array $ordered): bool
+    {
+        foreach (array_values($ordered) as $index => $tag) {
+            if (! $tag instanceof Tag || ($positions[KeyShape::canonical($tag->getKey())] ?? null) !== $index) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     // Maintenance ----------------------------------------------------------------------
@@ -433,7 +497,8 @@ final class TagsFake extends TagsManager
 
     /**
      * The tags the recorded operations of one kind returned — leaving out the calls that changed
-     * nothing: an update that saved nothing, a delete of a deleted tag.
+     * nothing: an update that saved nothing, a delete of a deleted tag, a move to where the tag
+     * already was.
      *
      * @return list<Tag>
      */
