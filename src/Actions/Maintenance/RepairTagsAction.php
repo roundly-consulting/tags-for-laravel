@@ -19,8 +19,8 @@ use RoundlyConsulting\Tags\Support\TagTransaction;
 use RoundlyConsulting\Tags\Support\TreeLock;
 
 /**
- * Put derived data back in line with the facts: paths and depths from the parent chain (a cycle
- * written past the package is reported, not placed), scope keys from the scope morph, taggings
+ * Put derived data back in line with the facts: scope keys from the scope morph, then paths and
+ * depths from the parent chain (a cycle written past the package is reported, not placed), taggings
  * whose taggable row is gone (a mass delete fires no model event) or whose tag is deleted (a
  * plain `$tag->delete()` detaches nothing), then usage counts from the taggings. A dry run counts
  * without writing.
@@ -31,8 +31,9 @@ final readonly class RepairTagsAction
 
     public function execute(RepairOptions $options): RepairReport
     {
-        [$paths, $cycles] = $options->paths ? $this->paths($options) : [0, 0];
+        // Scope keys first: they decide which tree a tag's path is rebuilt in.
         $scopeKeys = $options->scopeKeys ? $this->scopeKeys($options) : 0;
+        [$paths, $cycles] = $options->paths ? $this->paths($options) : [0, 0];
         [$orphans, $unresolvable] = $options->orphans ? $this->orphans($options) : [0, []];
         $trashedTaggings = $options->orphans ? $this->trashedTaggings($options) : 0;
         $counts = $options->counts ? $this->counts($options) : 0;
@@ -84,15 +85,17 @@ final readonly class RepairTagsAction
             TreeLock::rows([], $query);
         }
 
-        $tags = ($dryRun ? $query : TreeLock::read($query))->get(['id', 'type', 'scope_key', 'parent_id', 'path', 'depth']);
+        $tags = ($dryRun ? $query : TreeLock::read($query))->get(['id', 'type', 'scope_type', 'scope_id', 'scope_key', 'parent_id', 'path', 'depth']);
         $byKey = $tags->keyBy(static fn (Tag $tag): string => (string) $tag->getKey());
         $fixed = 0;
         $cycles = 0;
+        $drifted = [];
 
         foreach ($tags as $tag) {
             $chain = [];
             $current = $tag;
             $cyclic = false;
+            $split = false;
 
             while ($current->parent_id !== null) {
                 $parentKey = (string) $current->parent_id;
@@ -106,6 +109,8 @@ final readonly class RepairTagsAction
                 $parent = $byKey->get($parentKey);
 
                 if ($parent === null) {
+                    $split = $drifted[$parentKey] ??= self::splitByScopeKey($current, $parentKey);
+
                     break;
                 }
 
@@ -116,6 +121,12 @@ final readonly class RepairTagsAction
             if ($cyclic) {
                 $cycles++;
 
+                continue;
+            }
+
+            // The tree a drifted scope key split off (a dry run, or `--paths` alone): the chain is
+            // placed once the scope keys are repaired, never rewritten as a root meanwhile.
+            if ($split) {
                 continue;
             }
 
@@ -132,6 +143,19 @@ final readonly class RepairTagsAction
         }
 
         return [$fixed, $cycles];
+    }
+
+    /**
+     * Whether `$child`'s parent sits in another tree only because a scope key drifted: same type,
+     * and the same scope by the morph columns.
+     */
+    private static function splitByScopeKey(Tag $child, string $parentKey): bool
+    {
+        $parent = TagModel::query()->withTrashed()->whereKey($parentKey)->first(['id', 'type', 'scope_type', 'scope_id']);
+
+        return $parent !== null
+            && $parent->type === $child->type
+            && ScopeKey::fromColumns($parent->scope_type, $parent->scope_id) === ScopeKey::fromColumns($child->scope_type, $child->scope_id);
     }
 
     private function scopeKeys(RepairOptions $options): int

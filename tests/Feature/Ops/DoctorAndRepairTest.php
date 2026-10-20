@@ -92,6 +92,29 @@ it('reports and repairs scope key drift', function (): void {
     expect($scoped->fresh()?->scope_key)->not->toBe('wrong')->and(doctorFindings())->toBe([]);
 });
 
+// Scope keys are repaired first, so a tag whose key drifted is back in its parent's tree when the
+// paths are rebuilt; meanwhile (a dry run) the split-off chain is not a path error.
+test('repair_fixes_scope_keys_before_paths', function (): void {
+    $team = Team::query()->create(['name' => 'Acme']);
+    $genres = Tags::type('genre')->within($team);
+    $music = $genres->make('Music')->create();
+    $jazz = $genres->make('Jazz')->under($music)->create();
+    $bebop = $genres->make('Bebop')->under($jazz)->create();
+    Tag::query()->whereKey($jazz->getKey())->toBase()->update(['scope_key' => 'wrong']);
+
+    expect(collect(doctorFindings())->pluck('section')->unique()->values()->all())->toBe(['scopes']);
+
+    $report = Tags::repair();
+
+    expect($report->scopeKeys)->toBe(1)
+        ->and($report->paths)->toBe(0)
+        ->and($jazz->fresh()?->path)->toBe('/'.$music->getKey().'/')
+        ->and($jazz->fresh()?->depth)->toBe(2)
+        ->and($bebop->fresh()?->depth)->toBe(3)
+        ->and(Tag::query()->descendantsOf($music)->orderBy('depth')->get()->pluck('slug')->all())->toBe(['jazz', 'bebop'])
+        ->and(doctorFindings())->toBe([]);
+});
+
 test('repair_recounts_drifted_counts', function (): void {
     Article::query()->create()->syncTags($this->jazz, 'genre');
     Tag::query()->whereKey($this->jazz->getKey())->toBase()->update(['usage_count' => 9]);
