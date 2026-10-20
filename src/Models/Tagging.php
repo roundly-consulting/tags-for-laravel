@@ -30,6 +30,13 @@ final class Tagging extends MorphPivot
 
     protected $guarded = [];
 
+    /**
+     * Never serialised: without a morph map it is the host model's class name.
+     *
+     * @var list<string>
+     */
+    protected $hidden = ['taggable_type'];
+
     public function getTable(): string
     {
         return TagsConfig::table('taggables');

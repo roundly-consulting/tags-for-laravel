@@ -115,3 +115,16 @@ test('read_only_messages_name_no_classes', function (string $group): void {
         ->and($slovak)->not->toContain('\\')->not->toStartWith('tags::')
         ->and($slovak)->not->toBe($english);
 })->with(['attach', 'detach', 'sync', 'sync_without_detaching', 'toggle', 'update_existing_pivot', 'create']);
+
+// The pivot of a serialised tag never carries the host's class name.
+test('pivot_serialisation_hides_the_taggable_type', function (): void {
+    $this->article->attachTags($this->tag);
+
+    $tags = $this->article->load('tags')->tags;
+    $json = $tags->toJson();
+
+    expect($json)->not->toContain('taggable_type')
+        ->and($json)->not->toContain('\\\\')
+        ->and($json)->toContain('"pivot":')
+        ->and($tags->first()?->pivot?->getAttribute('taggable_type'))->toBe($this->article->getMorphClass());
+});
