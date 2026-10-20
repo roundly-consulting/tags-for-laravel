@@ -131,16 +131,19 @@ abstract class Controller
     }
 
     /**
-     * A validated `integer` field: a JSON number, or the digit string a form post (or a JSON
-     * string) carries — the rule accepts both.
+     * A validated `integer` field, read the way the rule validated it (`FILTER_VALIDATE_INT`): a
+     * JSON number — `1.0` and `1e0` included — or the string a form post (or a JSON string)
+     * carries, `"+1"` included.
      */
     protected static function integer(mixed $value): ?int
     {
-        if (is_int($value)) {
-            return $value;
+        if (! is_scalar($value)) {
+            return null;
         }
 
-        return is_string($value) && preg_match('/^[0-9]{1,10}$/D', $value) === 1 ? (int) $value : null;
+        $integer = filter_var($value, FILTER_VALIDATE_INT);
+
+        return is_int($integer) ? $integer : null;
     }
 
     /**

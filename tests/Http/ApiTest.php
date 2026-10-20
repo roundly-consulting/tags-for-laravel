@@ -279,6 +279,22 @@ test('an_out_of_range_depth_filter_lists_nothing', function (string $depth): voi
     $this->getJson('/api/tags/genre?filter[depth]=0002')->assertOk()->assertJsonCount(1, 'data');
 })->with(['40000', '99999999999', str_repeat('9', 23)]);
 
+// Every position the `integer` rule accepts is the position the tag gets.
+test('a_validated_position_is_never_dropped', function (string $position): void {
+    apiUser(admin: true);
+    Tags::type('genre')->make('Rock')->create();
+    Tags::type('genre')->make('Pop')->create();
+    $json = ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json'];
+
+    $this->call('POST', '/api/tags/genre', server: $json, content: '{"name":{"en":"New"},"position":'.$position.'}')
+        ->assertCreated()
+        ->assertJsonPath('data.position', 1);
+
+    $this->call('POST', "/api/tags/genre/{$this->jazz->getKey()}/move", server: $json, content: '{"parent":null,"position":'.$position.'}')
+        ->assertOk()
+        ->assertJsonPath('data.position', 1);
+})->with(['a float' => ['1.0'], 'a signed string' => ['"+1"'], 'an exponent' => ['1e0']]);
+
 // query-builder splits a filter value on commas; the search is one term all the same.
 test('a_search_with_a_comma_is_one_term', function (): void {
     apiUser();
