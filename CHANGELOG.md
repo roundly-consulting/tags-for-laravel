@@ -6,6 +6,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 
 ## Unreleased
 
+## 1.0.1 - 2026-10-20
+
 ### Changed
 
 - `GET /tag-types` lists only the types the caller may read: a type the
