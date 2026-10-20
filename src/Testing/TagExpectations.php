@@ -25,12 +25,15 @@ final class TagExpectations
             return;
         }
 
+        // Both read the database through a copy without loaded relations, never a `tags` relation
+        // loaded before another instance wrote; the model under test keeps its own.
         expect()->extend('toHaveTags', function (array $tags, mixed $type = null): mixed {
             /** @var Model&Taggable $taggable */
             $taggable = $this->value;
+            $fresh = $taggable->withoutRelations();
 
             foreach ($tags as $tag) {
-                expect($taggable->hasTag($tag, $type))->toBeTrue('Expected the model to carry the tag ['.(is_object($tag) ? $tag->getKey() : $tag).'].');
+                expect($fresh->hasTag($tag, $type))->toBeTrue('Expected the model to carry the tag ['.(is_object($tag) ? $tag->getKey() : $tag).'].');
             }
 
             return $this;
@@ -40,7 +43,7 @@ final class TagExpectations
             /** @var Model&Taggable $taggable */
             $taggable = $this->value;
 
-            $tags = $type === null ? $taggable->tags()->get() : $taggable->tagsOf($type);
+            $tags = $type === null ? $taggable->tags()->get() : $taggable->withoutRelations()->tagsOf($type);
 
             expect($tags)->toHaveCount(0, 'Expected the model to carry no tags.');
 

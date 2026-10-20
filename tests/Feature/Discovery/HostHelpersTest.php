@@ -301,6 +301,21 @@ test('expectations_pass_and_fail', function (): void {
         ->and(fn () => expect($article)->toHaveNoTags())->toThrow(ExpectationFailedException::class);
 });
 
+// The matchers read the database, never a `tags` relation loaded before another instance wrote.
+test('expectations_read_the_database_even_with_a_stale_relation', function (): void {
+    TagExpectations::register();
+    $article = Article::query()->create();
+    $article->load('tags');
+
+    Article::query()->findOrFail($article->getKey())->attachTags(['live'], 'label');
+
+    expect(fn () => expect($article)->toHaveNoTags('label'))->toThrow(ExpectationFailedException::class)
+        ->and(fn () => expect($article)->toHaveNoTags())->toThrow(ExpectationFailedException::class)
+        ->and($article)->toHaveTags(['live'], 'label')
+        ->and($article)->toHaveTags(['live'])
+        ->and($article->relationLoaded('tags'))->toBeTrue();
+});
+
 test('tag_summary_resource_runs_no_queries_and_no_gate_checks', function (): void {
     $checks = 0;
     Gate::before(static function () use (&$checks): ?bool {
