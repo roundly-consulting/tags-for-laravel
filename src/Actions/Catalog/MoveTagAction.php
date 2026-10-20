@@ -81,6 +81,12 @@ final readonly class MoveTagAction
             $oldPrefix = TagPath::subtreePrefix($fresh);
             $oldDepth = $fresh->depth;
 
+            // Already there — the same parent, at the position asked for (or the one an append
+            // would give): no row changes, so nothing is written or announced.
+            if (self::sameParent($fresh, $parent) && ($position ?? TagStore::position($fresh->type, $fresh->scope_key, $parent, null, $fresh)) === $fresh->position) {
+                return $fresh;
+            }
+
             if ($position !== null && self::closesItsSlot($fresh, $parent, $position)) {
                 // Out of its slot first, so a later index counts the siblings without it.
                 TagStore::siblings($fresh->type, $fresh->scope_key, $parent, $fresh)->where('position', '>', $fresh->position)->decrement('position');
@@ -106,9 +112,11 @@ final readonly class MoveTagAction
      */
     private static function closesItsSlot(Tag $tag, ?Tag $under, int $position): bool
     {
-        $from = $tag->parent_id === null ? null : (string) $tag->parent_id;
-        $to = $under === null ? null : (string) $under->getKey();
+        return self::sameParent($tag, $under) && $tag->position < $position;
+    }
 
-        return $from === $to && $tag->position < $position;
+    private static function sameParent(Tag $tag, ?Tag $under): bool
+    {
+        return ($tag->parent_id === null ? null : (string) $tag->parent_id) === ($under === null ? null : (string) $under->getKey());
     }
 }

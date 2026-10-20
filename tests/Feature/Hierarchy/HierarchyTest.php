@@ -469,3 +469,28 @@ it('reorders through the raw action', function (): void {
     expect($reordered->pluck('slug')->all())->toBe(['rock', 'music'])
         ->and($moved->parent_id)->toBe($rock->getKey());
 });
+
+// A move to where the tag already is, or a reorder to the current order, changes no row and
+// announces nothing.
+test('no_op_move_and_reorder_fire_nothing', function (): void {
+    $rock = $this->genres->make('Rock')->create();
+    Event::fake([TagMoved::class, TagsReordered::class]);
+
+    $this->genres->move($this->jazz, $this->music, 0);
+    $this->genres->move($rock, null, 1);
+    $this->genres->move($rock, null);
+    $this->genres->reorder(null, [$this->music, $rock]);
+    $this->genres->reorder($this->music, [$this->jazz]);
+
+    Event::assertNotDispatched(TagMoved::class);
+    Event::assertNotDispatched(TagsReordered::class);
+
+    expect($this->genres->roots()->pluck('position')->all())->toBe([0, 1])
+        ->and($this->jazz->fresh()?->position)->toBe(0);
+
+    $this->genres->move($rock, null, 0);
+    $this->genres->reorder(null, [$this->music, $rock]);
+
+    Event::assertDispatched(TagMoved::class);
+    Event::assertDispatched(TagsReordered::class);
+});

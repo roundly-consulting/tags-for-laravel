@@ -61,15 +61,21 @@ final readonly class ReorderTagsAction
 
             $ordered = [...array_values($listed), ...$siblings->except(array_map(strval(...), array_keys($listed)))->values()->all()];
 
+            $changed = false;
+
             foreach ($ordered as $position => $tag) {
                 if ($tag->position !== $position) {
                     TagModel::query()->whereKey($tag->getKey())->toBase()->update(['position' => $position]);
                     $tag->position = $position;
                     $tag->syncOriginalAttribute('position');
+                    $changed = true;
                 }
             }
 
-            event(new TagsReordered($type->name, $parent, $ordered));
+            // The current order asked for again changes no row: nothing to announce.
+            if ($changed) {
+                event(new TagsReordered($type->name, $parent, $ordered));
+            }
 
             return new Collection($ordered);
         });
