@@ -30,6 +30,11 @@ use RoundlyConsulting\Translatable\Facades\Translatable;
 final class TagIndexQuery implements Sort
 {
     /**
+     * The largest depth the `depth` column holds (an unsigned tiny integer).
+     */
+    private const int MAX_DEPTH = 255;
+
+    /**
      * The allow-listed list of one type in the readable scopes. `filter[trashed]` is allowed when
      * the caller manages one of them, and lists deleted tags of those scopes only.
      *
@@ -58,7 +63,12 @@ final class TagIndexQuery implements Sort
                 }
             }),
             AllowedFilter::callback('depth', static function (Builder $query, mixed $value): void {
-                is_string($value) && ctype_digit($value) ? $query->where('depth', (int) $value) : $query->whereRaw('1 = 0');
+                // Within the column's range only: PostgreSQL answers a larger value with an error.
+                $digits = is_string($value) && ctype_digit($value) ? ltrim($value, '0') : null;
+
+                $digits !== null && strlen($digits) <= 3 && (int) $digits <= self::MAX_DEPTH
+                    ? $query->where('depth', (int) $digits)
+                    : $query->whereRaw('1 = 0');
             }),
             AllowedFilter::callback('ids', static function (Builder $query, mixed $value): void {
                 $keys = array_values(array_filter(is_array($value) ? $value : [$value], static fn (mixed $key): bool => (is_string($key) || is_int($key)) && KeyShape::isTagKey($key)));

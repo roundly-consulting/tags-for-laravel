@@ -271,6 +271,14 @@ test('index_links_keep_the_query_string', function (): void {
         ->assertJsonPath('data.0.slug', 'printer-11');
 });
 
+// The depth column is a small integer; a depth past its range names no tag, never a 500.
+test('an_out_of_range_depth_filter_lists_nothing', function (string $depth): void {
+    apiUser();
+
+    $this->getJson('/api/tags/genre?filter[depth]='.$depth)->assertOk()->assertJsonPath('data', []);
+    $this->getJson('/api/tags/genre?filter[depth]=0002')->assertOk()->assertJsonCount(1, 'data');
+})->with(['40000', '99999999999', str_repeat('9', 23)]);
+
 // query-builder splits a filter value on commas; the search is one term all the same.
 test('a_search_with_a_comma_is_one_term', function (): void {
     apiUser();
