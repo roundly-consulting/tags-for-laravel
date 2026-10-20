@@ -6,6 +6,52 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 
 ## Unreleased
 
+### Changed
+
+- `GET /tag-types` lists only the types the caller may read: a type the
+  `tags.authorization.abilities.view` gate denies is left out, as its show already answered 403.
+  No view ability configured still lists every type.
+- A scoped tag's `scope` in the API renders its `tags.scopes` alias (`{"id": 1, "type": "team"}`),
+  the value `?scope=team:1` takes, instead of the class basename. A scope model without an alias
+  still renders its basename, and `tags.resources.scope` still swaps the resource.
+- A serialised tag's `pivot` no longer carries `taggable_type` — without a morph map it was the
+  host model's class name. The attribute is still there on the `Tagging` model.
+
+### Fixed
+
+- Moving a tag to a later position under the same parent puts it at that position; it used to
+  land one place early.
+- `tags:repair` (and `Tags::repair()`) fixes scope keys before rebuilding paths, so a tag whose
+  scope key drifted keeps its place in the tree, and `tags:doctor` no longer reports such a tag as
+  a path error.
+- The API's tag list keeps the scope, filters, sort and page size in its pagination links.
+- `filter[depth]` past the depth column's range lists nothing instead of answering 500 on
+  PostgreSQL.
+- A tag key in another spelling the database accepts — a uuid in upper case, a ulid in lower
+  case, a number with leading zeros — is found by `findMany()`, `TagsRule::byId()`, `reorder()`
+  and `TagsFilter::byId()` like the canonical key.
+- `detachTags()` by name removes a global tag the model carries even after its scope got its own
+  tag of that name; attaching still prefers the scope's tag.
+- The API places a tag at every position the `integer` rule accepts (`1.0`, `"+1"`, `1e0`)
+  instead of silently appending it.
+- `Tags::fake()` no longer counts a restore of a live tag, an update that changed nothing or a
+  second delete of a deleted tag as a restore, update or delete.
+- `assertCleared($model, $type)` passes after `clearTags()` or the deletion hook, which clear
+  every type.
+- `toHaveTags()` and `toHaveNoTags($type)` read the database, never a `tags` relation loaded
+  before another instance wrote.
+- A tag named "0" is found among other names in `withAnyTags()` and in tagging calls.
+- A sibling at the position cap no longer makes appending or inserting under the same parent fail
+  with a database error (or store a position past the cap): the write is refused as an invalid
+  position.
+- A tag description may contain a bare `<` ("I <3 jazz"); only tag-shaped markup is refused.
+- The migrations refuse a configured table name whose derived index names would be too long for
+  MySQL or collide on PostgreSQL, naming the config key, instead of failing halfway through.
+- Two concurrent deletes of the same flat tag fire `TagDeleted` once; the second returns the
+  deleted tag.
+- A move to the tag's current parent and position, or a reorder to the current order, no longer
+  fires `TagMoved` or `TagsReordered`.
+
 ## 1.0.0 - 2026-10-20
 
 Initial public release.
