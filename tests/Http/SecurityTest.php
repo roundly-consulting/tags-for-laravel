@@ -340,6 +340,29 @@ test('the_scope_resource_renders_the_scope_alias', function (): void {
     expect((new TagScopeResource($this->acme))->resolve(Request::create('/')))->toBe(['id' => $this->acme->getKey(), 'type' => 'Team']);
 });
 
+// The type list shows only the types the caller may read: a type the view ability denies is
+// left out, as its show answers 403. A null ability lists every type; one gate call per type.
+test('the_type_index_lists_only_types_the_caller_may_view', function (): void {
+    defineTagGates();
+    $calls = 0;
+    Gate::define('tags.view', static function (User $user, string $type) use (&$calls): bool {
+        $calls++;
+
+        return $type === 'label';
+    });
+    apiUser();
+
+    $this->getJson('/api/tag-types')->assertOk()->assertJsonCount(2, 'data');
+
+    config()->set('tags.authorization.abilities.view', 'tags.view');
+
+    $this->getJson('/api/tag-types')->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.name', 'label');
+    expect($calls)->toBe(2);
+
+    $this->getJson('/api/tag-types/tag')->assertForbidden();
+    $this->getJson('/api/tag-types/label')->assertOk();
+});
+
 test('scope_resource_swap_is_honoured', function (): void {
     config()->set('tags.resources.scope', HostScopeResource::class);
 

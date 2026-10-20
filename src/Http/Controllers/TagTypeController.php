@@ -20,7 +20,8 @@ final class TagTypeController extends Controller
     public function index(ReadTagsRequest $request): JsonResponse
     {
         $scope = $request->scopeModel();
-        $types = $this->manager()->types()->filter(static fn (TagType $type): bool => Access::canSee($request, $type, $scope));
+        // The types the caller may read: show answers 403 for the others.
+        $types = $this->manager()->types()->filter(static fn (TagType $type): bool => Access::canSee($request, $type, $scope) && Access::canView($request, $type, $scope));
 
         return TagTypeResource::collection($types->values())->response();
     }

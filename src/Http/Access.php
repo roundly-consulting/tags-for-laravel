@@ -39,11 +39,25 @@ final class Access
 
     public static function authorizeView(Request $request, TagType $type, ?Model $scope): void
     {
-        $ability = TagsConfig::viewAbility();
-
-        if ($ability !== null && ! self::gate($request)->allows($ability, [$type->name, $scope])) {
+        if (! self::canView($request, $type, $scope)) {
             throw new AuthorizationException;
         }
+    }
+
+    /**
+     * Whether the caller may read the type: no `view` ability means everyone may.
+     */
+    public static function canView(Request $request, TagType $type, ?Model $scope): bool
+    {
+        $ability = TagsConfig::viewAbility();
+
+        if ($ability === null) {
+            return true;
+        }
+
+        $key = 'view:'.$type->name.':'.ScopeKey::for($scope);
+
+        return self::memo($request, $key, static fn (): bool => self::gate($request)->allows($ability, [$type->name, $scope]));
     }
 
     /**
