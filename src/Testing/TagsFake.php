@@ -32,6 +32,13 @@ final class TagsFake extends TagsManager
     /** @var list<RecordedTagOperation> */
     private array $recorded = [];
 
+    /**
+     * Recorded deletes of a tag that was already deleted: nothing happened.
+     *
+     * @var list<RecordedTagOperation>
+     */
+    private array $noOps = [];
+
     public function __construct(TagTypeRegistry $registry)
     {
         parent::__construct($registry);
@@ -39,9 +46,17 @@ final class TagsFake extends TagsManager
 
     public function perform(TagOperation $operation, string $action, Closure $execute, array $context = []): mixed
     {
+        // A delete returns the deleted tag either way: only the row before the call tells a no-op.
+        $tag = $context['tag'] ?? null;
+        $noOp = $operation === TagOperation::DeleteTag && $tag instanceof Tag && ! TagModel::query()->whereKey($tag->getKey())->exists();
+
         $result = parent::perform($operation, $action, $execute, $context);
 
-        $this->recorded[] = new RecordedTagOperation($operation, $context, $result);
+        $this->recorded[] = $recorded = new RecordedTagOperation($operation, $context, $result);
+
+        if ($noOp) {
+            $this->noOps[] = $recorded;
+        }
 
         return $result;
     }
@@ -401,7 +416,8 @@ final class TagsFake extends TagsManager
         foreach ($this->recorded as $recorded) {
             $result = $recorded->result;
 
-            if ($recorded->operation === TagOperation::RestoreTag && $result instanceof Tag) {
+            // A restore of a live tag changed nothing.
+            if ($recorded->operation === TagOperation::RestoreTag && $result instanceof Tag && $result->wasRecentlyRestored) {
                 $tags[] = $result;
             }
 
@@ -416,6 +432,9 @@ final class TagsFake extends TagsManager
     }
 
     /**
+     * The tags the recorded operations of one kind returned — leaving out the calls that changed
+     * nothing: an update that saved nothing, a delete of a deleted tag.
+     *
      * @return list<Tag>
      */
     private function tagsOf(TagOperation $operation): array
@@ -423,9 +442,17 @@ final class TagsFake extends TagsManager
         $tags = [];
 
         foreach ($this->recorded($operation) as $recorded) {
-            if ($recorded->result instanceof Tag) {
-                $tags[] = $recorded->result;
+            $result = $recorded->result;
+
+            if (! $result instanceof Tag || in_array($recorded, $this->noOps, true)) {
+                continue;
             }
+
+            if ($operation === TagOperation::UpdateTag && ! $result->wasChanged()) {
+                continue;
+            }
+
+            $tags[] = $result;
         }
 
         return $tags;

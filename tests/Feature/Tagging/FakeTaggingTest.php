@@ -300,3 +300,29 @@ test('assert_synced_reads_fresh_tags', function (): void {
 
     expect(fn () => $fake->assertSynced($this->article, 'tag', ['rock']))->toThrow(ExpectationFailedException::class);
 });
+
+// A call that changed nothing is no restore, update or delete: the catalog assertions check what
+// really happened.
+test('fake_ignores_no_op_catalog_calls', function (): void {
+    $live = Tags::type('label')->make('Live')->create();
+    $fake = Tags::fake();
+    $labels = static fn (): TypeTags => Tags::type('label');
+
+    $labels()->restore($live);
+    $labels()->rename($live, 'Live');
+
+    $fake->assertNoTagRestored();
+    $fake->assertNoTagUpdated();
+
+    $labels()->delete($live);
+    $labels()->delete($live);
+
+    $fake->assertTagDeleted();
+    expect(fn () => $fake->assertNoTagDeleted())->toThrow(ExpectationFailedException::class, 'but 1 were.');
+
+    $labels()->restore($live);
+    $labels()->rename($live, 'Live music');
+
+    $fake->assertTagRestored(fn (Tag $tag): bool => $tag->is($live));
+    $fake->assertTagUpdated(fn (Tag $tag): bool => $tag->name === 'Live music');
+});
