@@ -162,10 +162,10 @@ final class TagScopes
             }
 
             $loaded = $query->get()
-                ->keyBy(static fn (Tag $tag): string => (string) $tag->getKey());
+                ->keyBy(static fn (Tag $tag): string => KeyShape::canonical($tag->getKey()));
 
             foreach ($keys as $index => $key) {
-                $tag = $loaded->get((string) $key);
+                $tag = $loaded->get(KeyShape::canonical($key));
                 $byInput[$index] = $tag === null ? [] : [$tag];
             }
         }

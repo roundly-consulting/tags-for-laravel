@@ -169,7 +169,7 @@ final class TagsRule implements ValidationRule
                 return RuleFailure::invalid($entry);
             }
 
-            $keys[(string) $entry] = $entry;
+            $keys[KeyShape::canonical($entry)] = $entry;
         }
 
         if ($keys === []) {
@@ -181,7 +181,7 @@ final class TagsRule implements ValidationRule
             ->whereIn('scope_key', $scopeKeys)
             ->whereKey(array_values($keys))
             ->pluck(TagModel::make()->getKeyName())
-            ->map(static fn (mixed $key): string => is_scalar($key) ? (string) $key : '')
+            ->map(static fn (mixed $key): string => is_int($key) || is_string($key) ? KeyShape::canonical($key) : '')
             ->all();
 
         foreach ($keys as $key => $entry) {

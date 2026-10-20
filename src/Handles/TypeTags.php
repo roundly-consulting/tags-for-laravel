@@ -262,7 +262,7 @@ final readonly class TypeTags
 
         foreach ($keys as $key) {
             if ((is_int($key) || is_string($key)) && KeyShape::isTagKey($key)) {
-                $valid[(string) $key] = $key;
+                $valid[KeyShape::canonical($key)] = $key;
             }
         }
 
@@ -270,10 +270,10 @@ final readonly class TypeTags
             return new Collection;
         }
 
-        $found = $this->query()->whereKey(array_values($valid))->get()->keyBy(static fn (Tag $tag): string => (string) $tag->getKey());
+        $found = $this->query()->whereKey(array_values($valid))->get()->keyBy(static fn (Tag $tag): string => KeyShape::canonical($tag->getKey()));
 
         return new Collection(array_values(array_filter(array_map(
-            static fn (string $key): ?Tag => $found->get($key),
+            static fn (int|string $key): ?Tag => $found->get((string) $key),
             array_keys($valid),
         ))));
     }

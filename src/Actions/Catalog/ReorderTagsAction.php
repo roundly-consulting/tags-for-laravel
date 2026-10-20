@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Tags\Events\TagsReordered;
 use RoundlyConsulting\Tags\Exceptions\TagNotFoundException;
 use RoundlyConsulting\Tags\Models\Tag;
+use RoundlyConsulting\Tags\Support\KeyShape;
 use RoundlyConsulting\Tags\Support\ScopeKey;
 use RoundlyConsulting\Tags\Support\TagModel;
 use RoundlyConsulting\Tags\Support\TagStore;
@@ -48,12 +49,12 @@ final readonly class ReorderTagsAction
             }
 
             $siblings = TreeLock::read(TagStore::siblings($type->name, $scopeKey, $parent)->ordered())->get()
-                ->keyBy(static fn (Tag $tag): string => (string) $tag->getKey());
+                ->keyBy(static fn (Tag $tag): string => KeyShape::canonical($tag->getKey()));
 
             $listed = [];
 
             foreach ($order as $item) {
-                $key = (string) ($item instanceof Tag ? $item->getKey() : $item);
+                $key = KeyShape::canonical($item instanceof Tag ? $item->getKey() : $item);
 
                 $listed[$key] = $siblings->get($key) ?? throw TagNotFoundException::generic();
             }

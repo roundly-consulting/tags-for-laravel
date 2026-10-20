@@ -57,4 +57,28 @@ final class KeyShape
     {
         return self::fits($key, TagsConfig::primaryKeyType());
     }
+
+    /**
+     * One spelling per tag key, to compare keys in PHP the way the database matches them: a bigint
+     * without leading zeros, a uuid in lower case, a ulid in upper case. A key that does not fit
+     * `tags.primary_key_type` comes back as given.
+     */
+    public static function canonical(mixed $key): string
+    {
+        $type = TagsConfig::primaryKeyType();
+
+        if (! is_int($key) && ! is_string($key)) {
+            return is_scalar($key) ? (string) $key : '';
+        }
+
+        if (is_int($key) || ! self::fits($key, $type)) {
+            return (string) $key;
+        }
+
+        return match ($type) {
+            KeyType::BigInt => ltrim($key, '0') === '' ? '0' : ltrim($key, '0'),
+            KeyType::Uuid => strtolower($key),
+            KeyType::Ulid => strtoupper($key),
+        };
+    }
 }
