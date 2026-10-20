@@ -69,6 +69,17 @@ test('descriptions_are_validated', function (): void {
         ->and(TagAttributes::description(null))->toBe([]);
 });
 
+// Plain text may hold a bare "<"; only something shaped like a tag is markup.
+test('a_description_with_a_bare_less_than_is_plain_text', function (): void {
+    expect(TagAttributes::description(['en' => 'I <3 jazz', 'sk' => 'x<y']))->toBe(['en' => 'I <3 jazz', 'sk' => 'x<y'])
+        ->and(TagAttributes::description('a < b'))->toBe(['en' => 'a < b'])
+        ->and(fn () => TagAttributes::description('<b>x</b>'))->toThrow(InvalidTagException::class, 'plain text')
+        ->and(fn () => TagAttributes::description('x</b>'))->toThrow(InvalidTagException::class, 'plain text')
+        ->and(fn () => TagAttributes::description('<!-- x -->'))->toThrow(InvalidTagException::class, 'plain text')
+        ->and(fn () => TagAttributes::description('<?php x ?>'))->toThrow(InvalidTagException::class, 'plain text')
+        ->and(fn () => TagAttributes::description('<img src=x onerror=alert(1)>'))->toThrow(InvalidTagException::class, 'plain text');
+});
+
 test('colors_and_icons_are_validated', function (): void {
     $tag = Tags::type('tag')->make('Rock')->color('#F24E29')->icon('🎸')->create();
 

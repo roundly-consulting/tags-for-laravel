@@ -50,8 +50,8 @@ final class TagAttributes
     }
 
     /**
-     * A plain-text description as a locale map (a string is the current locale): no markup, no
-     * control characters other than line breaks and tabs, at most
+     * A plain-text description as a locale map (a string is the current locale): no markup (a
+     * bare `<` is fine), no control characters other than line breaks and tabs, at most
      * `tags.descriptions.max_length` characters per locale. Blank and null values are dropped —
      * on an update they clear their locale ({@see self::clearedLocales()}).
      *
@@ -85,7 +85,9 @@ final class TagAttributes
                 continue;
             }
 
-            if (preg_match('/[^\P{Cc}\n\r\t]/u', $text) === 1 || strip_tags($text) !== $text) {
+            // Markup is something shaped like a tag, a comment or a processing instruction; a
+            // bare "<" ("I <3 jazz", "x<y") is plain text.
+            if (preg_match('/[^\P{Cc}\n\r\t]/u', $text) === 1 || preg_match('/<\/?[a-z!?][^>]*>/i', $text) === 1) {
                 throw InvalidTagException::invalidDescription();
             }
 
