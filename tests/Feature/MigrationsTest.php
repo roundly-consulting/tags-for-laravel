@@ -5,6 +5,8 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\Schema;
 use RoundlyConsulting\PackageToolkit\Enums\DatabaseDriver;
 use RoundlyConsulting\Tags\Exceptions\InvalidTagsConfigurationException;
+use RoundlyConsulting\Tags\Support\SchemaNames;
+use RoundlyConsulting\Tags\Support\TagsConfig;
 use RoundlyConsulting\Tags\TagsServiceProvider;
 use RoundlyConsulting\Testing\Database\DriverMatrix;
 
@@ -92,6 +94,33 @@ test('table_names_whose_index_names_overflow_are_refused', function () use ($mig
     }
 
     Schema::dropAllTables();
+});
+
+// The same limits, checked per engine without a connection to it; SQLite has none.
+test('table_name_limits_follow_the_engine', function (string $driver, string $table, int $longest, string $message): void {
+    $name = static fn (int $length): string => substr(str_repeat('abcdefghij', 7), 0, $length);
+
+    config()->set('tags.tables.'.$table, $name($longest));
+    SchemaNames::ensureFit($driver);
+
+    config()->set('tags.tables.'.$table, $name($longest + 1));
+
+    expect(fn () => SchemaNames::ensureFit($driver))->toThrow(InvalidTagsConfigurationException::class, $message);
+})->with([
+    'mysql tags' => ['mysql', 'tags', 38, '[tags.tables.tags] must be a table name of at most 38 characters on mysql'],
+    'mariadb taggables' => ['mariadb', 'taggables', 32, '[tags.tables.taggables] must be a table name of at most 32 characters'],
+    'mysql locks' => ['mysql', 'locks', 57, '[tags.tables.locks] must be a table name of at most 57 characters'],
+    'pgsql tags' => ['pgsql', 'tags', 59, '[tags.tables.tags] must be a table name whose index names stay distinct'],
+    'pgsql taggables' => ['pgsql', 'taggables', 60, '[tags.tables.taggables] must be a table name whose index names stay distinct'],
+    'pgsql locks' => ['pgsql', 'locks', 62, '[tags.tables.locks] must be a table name whose index names stay distinct'],
+]);
+
+it('puts no limit on table names on sqlite', function (): void {
+    config()->set('tags.tables', ['tags' => str_repeat('t', 63), 'taggables' => str_repeat('g', 63), 'locks' => str_repeat('l', 63)]);
+
+    SchemaNames::ensureFit('sqlite');
+
+    expect(TagsConfig::table('locks'))->toBe(str_repeat('l', 63));
 });
 
 /**

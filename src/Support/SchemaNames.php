@@ -56,7 +56,8 @@ final class SchemaNames
     }
 
     /**
-     * Tables and indexes share one namespace on PostgreSQL; constraint names are unique per table.
+     * Tables and indexes share one namespace on PostgreSQL. (Constraint names are unique per
+     * table; the ones these tables carry collide only past a length their indexes already do.)
      *
      * @param  array<string, string>  $tables  config key => table name
      */
@@ -71,18 +72,10 @@ final class SchemaNames
         foreach (self::indexes($tables) as $key => $names) {
             foreach ($names as $name) {
                 if (isset($relations[self::truncated($name)])) {
-                    throw self::collision($key);
+                    throw InvalidTagsConfigurationException::invalid($key, 'a table name whose index names stay distinct when pgsql cuts them to 63 characters');
                 }
 
                 $relations[self::truncated($name)] = $key;
-            }
-        }
-
-        foreach (self::constraints($tables) as $key => $names) {
-            $truncated = array_map(self::truncated(...), $names);
-
-            if (count(array_unique($truncated)) !== count($truncated)) {
-                throw self::collision($key);
             }
         }
     }
@@ -90,11 +83,6 @@ final class SchemaNames
     private static function truncated(string $name): string
     {
         return substr($name, 0, self::PGSQL_MAX);
-    }
-
-    private static function collision(string $key): InvalidTagsConfigurationException
-    {
-        return InvalidTagsConfigurationException::invalid($key, 'a table name whose index names stay distinct when pgsql cuts them to 63 characters');
     }
 
     /**
