@@ -316,8 +316,28 @@ test('resources_leak_no_class_names', function (): void {
     $tree = $this->getJson('/api/tag-types')->getContent();
 
     expect($json)->not->toContain('\\\\')->not->toContain('RoundlyConsulting')->not->toContain('scope_key')->not->toContain('scope_type')
-        ->and($json)->toContain('"scope":{"id":'.json_encode($this->acme->getKey()).',"type":"Team"}')
+        // The scope's type is its `tags.scopes` alias since the owner's call on the 2026-10-20
+        // review (it was the class basename): still no class name.
+        ->and($json)->toContain('"scope":{"id":'.json_encode($this->acme->getKey()).',"type":"team"}')
         ->and($tree)->not->toContain('\\\\');
+});
+
+// The scope renders as the `tags.scopes` alias `?scope=` takes, so a client can send it straight
+// back; a scope model without an alias falls back to its class basename.
+test('the_scope_resource_renders_the_scope_alias', function (): void {
+    defineTagGates();
+    apiUser();
+
+    $scope = $this->getJson('/api/tags/label?scope=team:'.$this->acme->getKey().'&scope_only=1')
+        ->assertOk()
+        ->assertJsonPath('data.0.scope', ['id' => $this->acme->getKey(), 'type' => 'team'])
+        ->json('data.0.scope');
+
+    $this->getJson('/api/tags/label?scope='.$scope['type'].':'.$scope['id'].'&scope_only=1')->assertOk()->assertJsonPath('data.0.slug', 'scanner');
+
+    config()->set('tags.scopes', ['member' => User::class]);
+
+    expect((new TagScopeResource($this->acme))->resolve(Request::create('/')))->toBe(['id' => $this->acme->getKey(), 'type' => 'Team']);
 });
 
 test('scope_resource_swap_is_honoured', function (): void {
