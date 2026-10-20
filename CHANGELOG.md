@@ -6,18 +6,20 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 
 ## Unreleased
 
+## 1.0.0 - 2026-10-20
+
 Initial public release.
 
 ### Added
 
 - Typed tag taxonomies for any Eloquent model: types declared in code (`Tags::define()`) or
   `tags.types`, each flat or hierarchical, single- or multi-select (`max`), curated or free-form,
-  with stable slugs, global-only and private options. Hosts adjust any package's type with
-  `Tags::extend()` or `tags.overrides`, whatever the provider order; `php artisan tags:types`
-  lists every type and where it came from.
-- Translatable names and descriptions with one slug per locale; a string names a tag by its slug
-  along the locale chain, so "Rock", "rock" and "ROCK!" are one tag and a taken slug is a
-  duplicate, never "rock-2".
+  limited to given models (`on()`, `onlyOn()`), with translated labels, stable slugs, global-only
+  and private options. Hosts adjust any package's type with `Tags::extend()` or `tags.overrides`,
+  whatever the provider order; `php artisan tags:types` lists every type and where it came from.
+- Translatable names and descriptions with one slug per locale, plus an optional colour and icon
+  per tag; a string names a tag by its slug along the locale chain, so "Rock", "rock" and "ROCK!"
+  are one tag and a taken slug is a duplicate, never "rock-2".
 - Global or tenant-scoped tags (any scope model), uniqueness per type and scope enforced by the
   database, and scoped catalog handles that never write a global tag. A tag or key of another
   scope answers exactly like a missing one, in every verb and in `TagsRule`.
@@ -51,4 +53,9 @@ Initial public release.
   taggings left on deleted tags; the doctor also checks the app locale against
   `translatable.locales` and lists tags deeper than their type's cap, and repair runs in chunks,
   safe under live traffic.
+- Safe under concurrent writes: no duplicate tags, no broken `max` limit and exact usage counts
+  with parallel writers, proven against real PostgreSQL and MySQL; a write that hits a deadlock
+  is retried.
+- Bigint, UUID or ULID keys (`tags.key_type`, `tags.primary_key_type`), renamable tables, a
+  swappable `Tag` model (`tags.models.tag`) and a `php artisan about` section.
 - English and Slovak translations.
