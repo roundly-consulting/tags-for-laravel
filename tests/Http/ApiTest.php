@@ -244,6 +244,33 @@ test('a_same_parent_move_to_a_later_index_lands_there', function (): void {
     expect($order())->toBe(['b', 'a', 'c']);
 });
 
+// The pagination links carry the request's scope, filters, sort and page size.
+test('index_links_keep_the_query_string', function (): void {
+    apiUser(admin: true);
+    $team = Team::query()->create(['name' => 'Acme']);
+
+    foreach (range(1, 25) as $index) {
+        Tags::type('label')->within($team)->make(sprintf('Printer %02d', $index))->create();
+    }
+
+    $query = 'scope=team:'.$team->getKey().'&scope_only=1&filter[search]=pr&sort=name&per_page=10';
+    $first = $this->getJson('/api/tags/label?'.$query)->assertOk()->assertJsonPath('meta.total', 25);
+    $next = (string) $first->json('links.next');
+
+    foreach (['scope=team:'.$team->getKey(), 'scope_only=1', 'filter[search]=pr', 'sort=name', 'per_page=10', 'page=2'] as $part) {
+        expect(urldecode($next))->toContain($part);
+    }
+
+    expect(urldecode((string) $first->json('links.last')))->toContain('filter[search]=pr')->toContain('page=3');
+
+    $this->getJson($next)
+        ->assertOk()
+        ->assertJsonPath('meta.current_page', 2)
+        ->assertJsonPath('meta.per_page', 10)
+        ->assertJsonPath('meta.total', 25)
+        ->assertJsonPath('data.0.slug', 'printer-11');
+});
+
 // query-builder splits a filter value on commas; the search is one term all the same.
 test('a_search_with_a_comma_is_one_term', function (): void {
     apiUser();

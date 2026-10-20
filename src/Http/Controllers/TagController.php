@@ -54,7 +54,8 @@ final class TagController extends Controller
 
         $page = TagIndexQuery::for($tagType->name, $handle->readScopeKeys(), $request, $managed)
             ->orderBy(TagModel::make()->getQualifiedKeyName())
-            ->paginate($request->perPage());
+            ->paginate($request->perPage())
+            ->withQueryString();
 
         self::loadScopes($page->getCollection());
 
