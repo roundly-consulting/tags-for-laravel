@@ -8,12 +8,16 @@ use Illuminate\Support\Facades\Schema;
 use RoundlyConsulting\PackageToolkit\Enums\KeyType;
 use RoundlyConsulting\Sluggable\DataTransferObjects\SlugIndexSpec;
 use RoundlyConsulting\Sluggable\Schema\SlugIndexes;
+use RoundlyConsulting\Tags\Support\SchemaNames;
 use RoundlyConsulting\Tags\Support\TagsConfig;
 
 return new class extends Migration
 {
     public function up(): void
     {
+        // Every index name derived from the table names must fit the engine: refused up front.
+        SchemaNames::ensureFit(Schema::getConnection()->getDriverName());
+
         $table = TagsConfig::table('tags');
         $primaryKeyType = KeyType::fromConfig('tags.primary_key_type');
 
