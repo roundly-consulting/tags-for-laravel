@@ -295,6 +295,22 @@ test('a_validated_position_is_never_dropped', function (string $position): void 
         ->assertJsonPath('data.position', 1);
 })->with(['a float' => ['1.0'], 'a signed string' => ['"+1"'], 'an exponent' => ['1e0']]);
 
+// A sibling at the position cap leaves no room to append or shift: refused, never a 500 and
+// never a position past the cap.
+test('appending_past_a_sibling_at_the_position_cap_never_500s', function (): void {
+    apiUser(admin: true);
+
+    $this->postJson('/api/tags/genre', ['name' => ['en' => 'Last'], 'position' => TagAttributes::MAX_POSITION])->assertCreated();
+
+    $this->postJson('/api/tags/genre', ['name' => ['en' => 'Appended']])->assertUnprocessable()->assertJson(['code' => 'invalid_tag']);
+    $this->postJson('/api/tags/genre', ['name' => ['en' => 'Inserted'], 'position' => 0])->assertUnprocessable()->assertJson(['code' => 'invalid_tag']);
+    $this->postJson("/api/tags/genre/{$this->jazz->getKey()}/move", ['parent' => null])->assertUnprocessable()->assertJson(['code' => 'invalid_tag']);
+
+    expect(fn () => Tags::type('genre')->make('Php')->create())->toThrow(InvalidTagException::class)
+        ->and((int) Tag::query()->withTrashed()->max('position'))->toBe(TagAttributes::MAX_POSITION)
+        ->and(Tag::query()->count())->toBe(3);
+});
+
 // query-builder splits a filter value on commas; the search is one term all the same.
 test('a_search_with_a_comma_is_one_term', function (): void {
     apiUser();

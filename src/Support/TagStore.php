@@ -11,6 +11,7 @@ use RoundlyConsulting\Tags\Actions\Internal\RewriteSubtreePathsAction;
 use RoundlyConsulting\Tags\DataTransferObjects\StoredTag;
 use RoundlyConsulting\Tags\DataTransferObjects\TagDraft;
 use RoundlyConsulting\Tags\Exceptions\DuplicateTagException;
+use RoundlyConsulting\Tags\Exceptions\InvalidTagException;
 use RoundlyConsulting\Tags\Exceptions\InvalidTagHierarchyException;
 use RoundlyConsulting\Tags\Models\Tag;
 use RoundlyConsulting\Tags\Types\TagType;
@@ -252,7 +253,8 @@ final class TagStore
 
     /**
      * The next free position below `$parent` (the roots with no parent) of a type and scope, or
-     * `$position` after shifting the siblings at and after it by one.
+     * `$position` after shifting the siblings at and after it by one. A sibling at the position
+     * cap leaves neither: the position is refused, never pushed past the column's range.
      */
     public static function position(string $type, string $scopeKey, ?Tag $parent, ?int $position, ?Tag $except = null): int
     {
@@ -264,7 +266,16 @@ final class TagStore
         if ($position === null) {
             $max = (clone $siblings)->max('position');
 
+            if (is_numeric($max) && (int) $max >= TagAttributes::MAX_POSITION) {
+                throw InvalidTagException::invalidPosition();
+            }
+
             return is_numeric($max) ? (int) $max + 1 : 0;
+        }
+
+        // `$position` is at most the cap, so a sibling at the cap is one this shift would move.
+        if ((clone $siblings)->where('position', '>=', TagAttributes::MAX_POSITION)->exists()) {
+            throw InvalidTagException::invalidPosition();
         }
 
         (clone $siblings)->where('position', '>=', $position)->increment('position');
