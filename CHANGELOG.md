@@ -6,6 +6,11 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 
 ## Unreleased
 
+### Fixed
+
+- `GET tags/{type}/popular?on=` counts only records the model's global scopes allow (soft-deleted
+  and other-tenant records no longer count).
+
 ## 1.0.1 - 2026-10-20
 
 ### Changed

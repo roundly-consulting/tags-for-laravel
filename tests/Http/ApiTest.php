@@ -8,6 +8,7 @@ use RoundlyConsulting\Tags\Facades\Tags;
 use RoundlyConsulting\Tags\Models\Tag;
 use RoundlyConsulting\Tags\Support\TagAttributes;
 use RoundlyConsulting\Tags\Tests\Fixtures\Models\Article;
+use RoundlyConsulting\Tags\Tests\Fixtures\Models\ListedArticle;
 use RoundlyConsulting\Tags\Tests\Fixtures\Models\ScopedArticle;
 use RoundlyConsulting\Tags\Tests\Fixtures\Models\Team;
 
@@ -412,6 +413,32 @@ it('suggests and lists popular tags', function (): void {
     $this->getJson('/api/tags/label/popular?on=article&limit=5')->assertOk()->assertJsonCount(1, 'data');
     $this->getJson('/api/tags/label/popular?on=note')->assertOk()->assertJsonCount(0, 'data');
     $this->getJson('/api/tags/label/popular?on='.urlencode(Article::class))->assertUnprocessable()->assertJson(['code' => 'unknown_alias']);
+});
+
+test('popular_on_a_model_skips_records_its_global_scopes_hide', function (): void {
+    config()->set('tags.taggables.listed', ListedArticle::class);
+    apiUser();
+
+    foreach (['Public', 'Trashed', 'Unlisted'] as $name) {
+        Tags::type('label')->make($name)->create();
+    }
+
+    ListedArticle::query()->create()->attachTags(['public'], 'label');
+
+    foreach (range(1, 2) as $index) {
+        $trashed = ListedArticle::query()->create();
+        $trashed->attachTags(['trashed'], 'label');
+        $trashed->delete();
+        ListedArticle::query()->create(['listed' => false])->attachTags(['unlisted'], 'label');
+    }
+
+    // `on` counts what the class's global scopes let through: SoftDeletes and the host's own.
+    $this->getJson('/api/tags/label/popular?on=listed')->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.slug', 'public');
+
+    // Without `on` the stored usage count ranks, every tagging included.
+    $this->getJson('/api/tags/label/popular')->assertOk()->assertJsonCount(3, 'data');
 });
 
 test('index_has_no_n_plus_one', function (): void {
