@@ -199,11 +199,21 @@ final readonly class ResolveTagsAction
             }
         }
 
-        $found = TagLookup::byStrings($type, Taggings::candidateScopeKeys($taggable, $type), $usable);
+        $scopeKeys = Taggings::candidateScopeKeys($taggable, $type);
+
+        if (! $strict) {
+            // A detach removes whatever the model carries under the name — a global tag its
+            // scope's own tag of that name now shadows included — so every match in its scopes.
+            $all = TagLookup::allByStrings($type, $scopeKeys, $usable);
+
+            return [$all === [] ? [] : array_merge(...array_values($all)), []];
+        }
+
+        $found = TagLookup::byStrings($type, $scopeKeys, $usable);
         $missing = [];
 
         foreach ($usable as $string) {
-            if (isset($found[$string]) || ! $strict) {
+            if (isset($found[$string])) {
                 continue;
             }
 

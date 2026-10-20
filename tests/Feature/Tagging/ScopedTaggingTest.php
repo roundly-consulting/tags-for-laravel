@@ -120,6 +120,26 @@ test('detach_skips_a_key_of_another_scope', function (): void {
         ->and(Tagging::query()->count())->toBe(1);
 })->skip(fn (): bool => config('tags.primary_key_type') !== 'bigint', 'int keys');
 
+// A detach by name removes whatever the model carries under that name: a global "rock" its scope's
+// own "rock" now shadows included. An attach still prefers the scope's tag.
+test('detach_by_name_removes_a_carried_global_tag_a_scoped_one_shadows', function (): void {
+    Tags::define('label');
+    $global = Tags::type('label')->make('Rock')->create();
+    $this->ticket->attachTags('rock', 'label');
+    $scoped = Tags::type('label')->within($this->acme)->make('Rock')->create();
+
+    expect($this->ticket->hasTag('rock', 'label'))->toBeTrue();
+
+    $changes = Tags::detach($this->ticket, 'rock', 'label');
+
+    expect(array_map(static fn (Tag $tag): mixed => $tag->getKey(), $changes->detached))->toBe([$global->getKey()])
+        ->and($this->ticket->hasTag('rock', 'label'))->toBeFalse();
+
+    $this->ticket->attachTags('rock', 'label');
+
+    expect($this->ticket->tagsOf('label')->modelKeys())->toBe([$scoped->getKey()]);
+});
+
 test('an_own_deleted_key_still_says_it_is_deleted', function (): void {
     Tags::define('label');
     $mine = Tags::type('label')->within($this->acme)->make('Old')->create();
