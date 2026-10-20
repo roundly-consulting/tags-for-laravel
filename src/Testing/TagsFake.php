@@ -178,8 +178,8 @@ final class TagsFake extends TagsManager
     }
 
     /**
-     * `$model`'s tags were cleared: of `$type`, or of any type when null. The deletion hook's
-     * clear counts.
+     * `$model`'s tags were cleared: of `$type`, or of any type when null. A clear of every type
+     * (`clearTags()`, the deletion hook's clear) clears `$type` too.
      */
     public function assertCleared(Model $model, string|BackedEnum|null $type = null): void
     {
@@ -187,7 +187,7 @@ final class TagsFake extends TagsManager
         $clears = array_filter(
             $this->recorded(TagOperation::Clear),
             static fn (RecordedTagOperation $recorded): bool => $recorded->concerns($model)
-                && ($name === null || ($recorded->context['type'] ?? null) === $name),
+                && ($name === null || in_array($recorded->context['type'] ?? null, [null, $name], true)),
         );
 
         PHPUnit::assertNotEmpty($clears, $name === null

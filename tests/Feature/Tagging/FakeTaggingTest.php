@@ -326,3 +326,17 @@ test('fake_ignores_no_op_catalog_calls', function (): void {
     $fake->assertTagRestored(fn (Tag $tag): bool => $tag->is($live));
     $fake->assertTagUpdated(fn (Tag $tag): bool => $tag->name === 'Live music');
 });
+
+// A clear of every type (`clearTags()`, the deletion hook) clears each type too.
+test('assert_cleared_of_a_type_accepts_a_clear_of_every_type', function (): void {
+    $note = Note::query()->create(['body' => 'x']);
+    $note->attachTags('x');
+    $fake = Tags::fake();
+    $this->article->attachTags(['live'], 'label');
+
+    $this->article->clearTags();
+    $note->delete();
+
+    $fake->assertCleared($this->article, 'label');
+    $fake->assertCleared($note, 'tag');
+});
