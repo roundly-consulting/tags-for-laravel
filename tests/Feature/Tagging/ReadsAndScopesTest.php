@@ -197,6 +197,23 @@ test('enum_type_names_are_accepted_by_the_trait', function (): void {
         ->and(Article::query()->withTagsOf(ArticleTagType::Genre)->count())->toBe(1);
 });
 
+// "0" is a name like any other, also beside other names.
+test('a_tag_slugged_zero_resolves_among_other_names', function (): void {
+    $zero = Article::query()->create(['title' => 'zero']);
+    $zero->attachTags(['0']);
+    Article::query()->create(['title' => 'jazz'])->attachTags(['jazz']);
+
+    expect(Article::query()->withAnyTags(['0', 'rock'])->pluck('title')->all())->toBe(['zero']);
+
+    Tags::define('cur')->curated();
+    Tags::type('cur')->make('0')->create();
+    Tags::type('cur')->make('Rock')->create();
+
+    $zero->attachTags(['0', 'rock'], 'cur');
+
+    expect($zero->tagsOf('cur')->pluck('slug')->sort()->values()->all())->toBe(['0', 'rock']);
+});
+
 test('unknown_types_throw_in_the_trait_and_scopes', function (Closure $use): void {
     $article = Article::query()->create();
 

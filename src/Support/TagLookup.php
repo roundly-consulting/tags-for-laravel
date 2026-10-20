@@ -200,10 +200,11 @@ final class TagLookup
 
         return $query->where(static function (Builder $group) use ($candidates, $chain): void {
             foreach ($chain as $locale) {
+                // Nulls only: the slug "0" is a slug like any other.
                 $slugs = array_values(array_unique(array_filter(array_map(
                     static fn (array $slugs): ?string => $slugs[$locale] ?? null,
                     $candidates,
-                ))));
+                ), static fn (?string $slug): bool => $slug !== null)));
 
                 if ($slugs !== []) {
                     $group->orWhereIn('slug->'.$locale, $slugs);
