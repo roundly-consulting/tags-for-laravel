@@ -25,7 +25,7 @@ with autocomplete, usage counts and query scopes that never N+1.
 
 ## Installation
 
-Requires PHP 8.4, Laravel 12 or 13, and PostgreSQL 12+ or MySQL 8.0.23+.
+Requires PHP 8.4, Laravel 13, and PostgreSQL 12+ or MySQL 8.0.23+.
 
 ```bash
 composer require roundly-consulting/tags-for-laravel
