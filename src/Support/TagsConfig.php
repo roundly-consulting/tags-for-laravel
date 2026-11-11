@@ -117,6 +117,15 @@ final class TagsConfig
         return $separator;
     }
 
+    /**
+     * Whether a plain string shaped like a tag key is read as a key first (`tags.string_keys`).
+     * Only on a uuid or ulid install: on bigint, numbers stay names whatever the flag says.
+     */
+    public static function stringKeys(): bool
+    {
+        return Config::boolean('tags.string_keys', false) && self::primaryKeyType() !== KeyType::BigInt;
+    }
+
     public static function unicodeSlugs(): bool
     {
         return Config::boolean('tags.slugs.unicode', false);

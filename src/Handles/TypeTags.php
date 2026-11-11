@@ -18,6 +18,7 @@ use RoundlyConsulting\Tags\Actions\Catalog\UpdateTagAction;
 use RoundlyConsulting\Tags\Builders\TagBuilder;
 use RoundlyConsulting\Tags\Builders\TagEditor;
 use RoundlyConsulting\Tags\DataTransferObjects\TagData;
+use RoundlyConsulting\Tags\DataTransferObjects\TagKey;
 use RoundlyConsulting\Tags\DataTransferObjects\TagNode;
 use RoundlyConsulting\Tags\DataTransferObjects\UpdateTagData;
 use RoundlyConsulting\Tags\Enums\TagChildren;
@@ -31,6 +32,7 @@ use RoundlyConsulting\Tags\Queries\PopularTags;
 use RoundlyConsulting\Tags\Queries\SuggestTags;
 use RoundlyConsulting\Tags\Support\KeyShape;
 use RoundlyConsulting\Tags\Support\ScopeKey;
+use RoundlyConsulting\Tags\Support\TagInputs;
 use RoundlyConsulting\Tags\Support\TagLookup;
 use RoundlyConsulting\Tags\Support\TagModel;
 use RoundlyConsulting\Tags\TagsManager;
@@ -159,7 +161,7 @@ final readonly class TypeTags
     /**
      * Order the siblings under `$parent` (the roots when null): the listed ones first, 0..n-1.
      *
-     * @param  array<array-key, Tag|int|string>  $order  tags or their keys
+     * @param  array<array-key, Tag|TagKey|int|string>  $order  tags or their keys
      * @return Collection<int, Tag>
      */
     public function reorder(?Tag $parent, array $order): Collection
@@ -204,52 +206,60 @@ final readonly class TypeTags
     }
 
     /**
-     * A live tag of this type in the readable scopes: a model, a key (int), or a name or slug
-     * (string, along the locale chain, the scope's tag before a global one).
+     * A live tag of this type in the readable scopes: a model, a key (an int or a {@see TagKey}),
+     * or a name or slug (string, along the locale chain, the scope's tag before a global one).
      */
-    public function find(Tag|int|string $tag): ?Tag
+    public function find(Tag|TagKey|int|string $tag): ?Tag
     {
+        $tag = TagInputs::normalize($tag);
+
         if ($tag instanceof Tag) {
             return $this->isReadable($tag) ? $this->query()->whereKey($tag->getKey())->first() : null;
         }
 
-        if (is_int($tag)) {
-            return KeyShape::isTagKey($tag) ? $this->query()->whereKey($tag)->first() : null;
+        if ($tag instanceof TagKey || is_int($tag)) {
+            $key = $tag instanceof TagKey ? $tag->key : $tag;
+
+            return KeyShape::isTagKey($key) ? $this->query()->whereKey($key)->first() : null;
         }
 
         return TagLookup::byStrings($this->type, $this->readScopeKeys(), [$tag])[$tag] ?? null;
     }
 
-    public function findOrFail(Tag|int|string $tag): Tag
+    public function findOrFail(Tag|TagKey|int|string $tag): Tag
     {
-        return $this->find($tag) ?? throw (is_string($tag)
+        return $this->find($tag) ?? throw (is_string($tag) && ! TagInputs::normalize($tag) instanceof TagKey
             ? TagNotFoundException::forName($tag, $this->type->name)
             : TagNotFoundException::generic());
     }
 
     /**
      * A deleted tag of this type in exactly this handle's scope — the scope a restore writes to:
-     * a model, a key (int), or a name or slug (string, along the locale chain). Live tags and
+     * a model, a key (an int or a {@see TagKey}), or a name or slug (string, along the locale chain). Live tags and
      * other scopes' tags (a global one from a scoped handle included) are never returned:
      * `$labels->restore($labels->findTrashed('rock'))`.
      */
-    public function findTrashed(Tag|int|string $tag): ?Tag
+    public function findTrashed(Tag|TagKey|int|string $tag): ?Tag
     {
         $query = TagModel::query()->onlyTrashed()->where('type', $this->type->name)->where('scope_key', $this->writeScopeKey());
+        $tag = TagInputs::normalize($tag);
 
         if ($tag instanceof Tag) {
             return $query->whereKey($tag->getKey())->first();
         }
 
-        if (is_int($tag)) {
-            return KeyShape::isTagKey($tag) ? $query->whereKey($tag)->first() : null;
+        if ($tag instanceof TagKey || is_int($tag)) {
+            $key = $tag instanceof TagKey ? $tag->key : $tag;
+
+            return KeyShape::isTagKey($key) ? $query->whereKey($key)->first() : null;
         }
 
         return TagLookup::byStrings($this->type, [$this->writeScopeKey()], [$tag], trashed: true)[$tag] ?? null;
     }
 
     /**
-     * Live tags of this type in the readable scopes by primary key (int, or a uuid/ulid string),
+     * Live tags of this type in the readable scopes by primary key (int, a uuid/ulid string, or a
+     * {@see TagKey}),
      * in the order given. Keys that are malformed, missing or of another type or scope are
      * skipped — the recipe for ids a form validated with `TagsRule::byId()`.
      *
@@ -261,6 +271,10 @@ final readonly class TypeTags
         $valid = [];
 
         foreach ($keys as $key) {
+            if ($key instanceof TagKey) {
+                $key = $key->key;
+            }
+
             if ((is_int($key) || is_string($key)) && KeyShape::isTagKey($key)) {
                 $valid[KeyShape::canonical($key)] = $key;
             }

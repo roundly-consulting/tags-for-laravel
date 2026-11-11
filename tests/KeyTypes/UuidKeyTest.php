@@ -42,3 +42,7 @@ test('non_canonical_keys_resolve_like_canonical_ones', function (): void {
             ->pluck('title')
             ->all())->toBe(['tagged']);
 })->skip(fn (): bool => DriverMatrix::driver() === 'sqlite', 'sqlite compares uuid strings case-sensitively');
+
+test('uuid_keys_resolve_through_the_key_path_only', function (): void {
+    KeyTypeScenarios::tagKeys(static fn (): string => (string) Str::uuid7());
+});

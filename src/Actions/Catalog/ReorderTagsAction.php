@@ -7,6 +7,7 @@ namespace RoundlyConsulting\Tags\Actions\Catalog;
 use BackedEnum;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
+use RoundlyConsulting\Tags\DataTransferObjects\TagKey;
 use RoundlyConsulting\Tags\Events\TagsReordered;
 use RoundlyConsulting\Tags\Exceptions\TagNotFoundException;
 use RoundlyConsulting\Tags\Models\Tag;
@@ -31,7 +32,7 @@ final readonly class ReorderTagsAction
     ) {}
 
     /**
-     * @param  array<array-key, Tag|int|string>  $order  tags or their keys
+     * @param  array<array-key, Tag|TagKey|int|string>  $order  tags or their keys
      * @return Collection<int, Tag> the siblings in their new order
      */
     public function execute(string|BackedEnum|TagType $type, ?Model $scope, ?Tag $parent, array $order): Collection
@@ -54,7 +55,11 @@ final readonly class ReorderTagsAction
             $listed = [];
 
             foreach ($order as $item) {
-                $key = KeyShape::canonical($item instanceof Tag ? $item->getKey() : $item);
+                $key = KeyShape::canonical(match (true) {
+                    $item instanceof Tag => $item->getKey(),
+                    $item instanceof TagKey => $item->key,
+                    default => $item,
+                });
 
                 $listed[$key] = $siblings->get($key) ?? throw TagNotFoundException::generic();
             }

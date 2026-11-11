@@ -9,11 +9,13 @@ use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Tags\Contracts\Taggable;
+use RoundlyConsulting\Tags\DataTransferObjects\TagKey;
 use RoundlyConsulting\Tags\Support\KeyShape;
 use RoundlyConsulting\Tags\Support\Messages;
 use RoundlyConsulting\Tags\Support\RuleFailure;
 use RoundlyConsulting\Tags\Support\ScopeKey;
 use RoundlyConsulting\Tags\Support\Taggings;
+use RoundlyConsulting\Tags\Support\TagInputs;
 use RoundlyConsulting\Tags\Support\TagLookup;
 use RoundlyConsulting\Tags\Support\TagModel;
 use RoundlyConsulting\Tags\Support\TagName;
@@ -37,10 +39,13 @@ use RoundlyConsulting\Translatable\Facades\Translatable;
  * value for a single type. A failure names the first entry that failed; a key of another scope
  * and a missing key fail alike ("unknown"), so the message reveals nothing about other scopes.
  *
- * Validated keys reach a write as strings, and a string is a name to the tagging verbs: pass the
- * tags they name to the verb, never the raw array — `Tags::for($model)->findMany($validated, $type)`
- * (the model's scopes, as `taggable()` validated them), or
- * `Tags::type($type)->within($scope)->findMany($validated)` for a rule given `within($scope)`.
+ * Validated keys reach a write as strings, and a string is a name to the tagging verbs: wrap them
+ * — `$model->syncTags(Tags::keys($validated), $type)` — or load the tags they name with
+ * `Tags::for($model)->findMany($validated, $type)` (the model's scopes, as `taggable()` validated
+ * them) or `Tags::type($type)->within($scope)->findMany($validated)`. Never pass the raw array.
+ *
+ * With `tags.string_keys` on (uuid and ulid installs), a name entry shaped like a key is validated
+ * as a key, as the tagging verbs will read it; those entries are checked before the names.
  */
 final class TagsRule implements ValidationRule
 {
@@ -125,7 +130,7 @@ final class TagsRule implements ValidationRule
         }
 
         $scopeKeys = $this->scopeKeys($type);
-        $distinct = $this->byId ? $this->keys($type, $entries, $scopeKeys) : $this->names($type, $entries, $scopeKeys);
+        $distinct = $this->byId ? $this->keys($type, $entries, $scopeKeys) : $this->entries($type, $entries, $scopeKeys);
 
         if ($distinct instanceof RuleFailure) {
             $fail(Messages::get('validation.'.$distinct->reason, ['tag' => $distinct->entry]));
@@ -135,7 +140,7 @@ final class TagsRule implements ValidationRule
 
         $max = $type->max === null ? $this->max : min($type->max, $this->max ?? $type->max);
 
-        if ($max !== null && $distinct > $max) {
+        if ($max !== null && count($distinct) > $max) {
             $fail(Messages::choice('validation.max', $max, ['max' => $max]));
         }
     }
@@ -155,12 +160,44 @@ final class TagsRule implements ValidationRule
     }
 
     /**
-     * The number of distinct tags the keys name, or the failure.
+     * Name entries: names, and under `tags.string_keys` the key-shaped ones as keys.
      *
      * @param  list<mixed>  $entries
      * @param  list<string>  $scopeKeys
+     * @return array<string, true>|RuleFailure
      */
-    private function keys(TagType $type, array $entries, array $scopeKeys): int|RuleFailure
+    private function entries(TagType $type, array $entries, array $scopeKeys): array|RuleFailure
+    {
+        $keys = [];
+        $names = [];
+
+        foreach ($entries as $entry) {
+            if (is_string($entry) && TagInputs::normalize($entry) instanceof TagKey) {
+                $keys[] = $entry;
+            } else {
+                $names[] = $entry;
+            }
+        }
+
+        $byKey = $this->keys($type, $keys, $scopeKeys);
+
+        if ($byKey instanceof RuleFailure) {
+            return $byKey;
+        }
+
+        $byName = $this->names($type, $names, $scopeKeys);
+
+        return $byName instanceof RuleFailure ? $byName : [...$byKey, ...$byName];
+    }
+
+    /**
+     * The distinct tags the keys name, or the failure.
+     *
+     * @param  list<mixed>  $entries
+     * @param  list<string>  $scopeKeys
+     * @return array<string, true>|RuleFailure
+     */
+    private function keys(TagType $type, array $entries, array $scopeKeys): array|RuleFailure
     {
         $keys = [];
 
@@ -173,7 +210,7 @@ final class TagsRule implements ValidationRule
         }
 
         if ($keys === []) {
-            return 0;
+            return [];
         }
 
         $found = TagModel::query()
@@ -184,23 +221,27 @@ final class TagsRule implements ValidationRule
             ->map(static fn (mixed $key): string => is_int($key) || is_string($key) ? KeyShape::canonical($key) : '')
             ->all();
 
+        $distinct = [];
+
         foreach ($keys as $key => $entry) {
             if (! in_array((string) $key, $found, true)) {
                 return RuleFailure::unknown($entry);
             }
+
+            $distinct['tag:'.$key] = true;
         }
 
-        return count($keys);
+        return $distinct;
     }
 
     /**
-     * The number of distinct tags the names name (unknown free-form names counted by slug), or
-     * the failure.
+     * The distinct tags the names name (unknown free-form names by slug), or the failure.
      *
      * @param  list<mixed>  $entries
      * @param  list<string>  $scopeKeys
+     * @return array<string, true>|RuleFailure
      */
-    private function names(TagType $type, array $entries, array $scopeKeys): int|RuleFailure
+    private function names(TagType $type, array $entries, array $scopeKeys): array|RuleFailure
     {
         $names = [];
 
@@ -219,7 +260,7 @@ final class TagsRule implements ValidationRule
 
         foreach ($names as $name) {
             if (isset($found[$name])) {
-                $distinct['tag:'.$found[$name]->getKey()] = true;
+                $distinct['tag:'.KeyShape::canonical($found[$name]->getKey())] = true;
 
                 continue;
             }
@@ -231,6 +272,6 @@ final class TagsRule implements ValidationRule
             $distinct['new:'.TagSlugs::slugify($name, Translatable::currentLocale())] = true;
         }
 
-        return count($distinct);
+        return $distinct;
     }
 }

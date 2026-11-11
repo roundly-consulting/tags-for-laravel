@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use RoundlyConsulting\Tags\Contracts\Taggable;
+use RoundlyConsulting\Tags\DataTransferObjects\TagKey;
 use RoundlyConsulting\Tags\Models\Tag;
 use RoundlyConsulting\Tags\Models\Tagging;
 use RoundlyConsulting\Tags\Relations\TagsRelation;
@@ -26,6 +27,10 @@ use RoundlyConsulting\Tags\TagsManager;
  * $concert->tagOf('genre')?->name;
  * Concert::withAnyTags(['music'], 'genre', descendants: true)->get();
  * ```
+ *
+ * A string is a name or a slug; name a tag by primary key with `TagKey::of($id)` or
+ * `Tags::keys($ids)` — on any key type, and never creating a tag:
+ * `$concert->syncTags(Tags::keys($validated['labels']), 'label')`.
  *
  * Every write goes through the manager (`Tags::for($this)`), so the type rules, scopes, usage
  * counts, events and `Tags::fake()` all apply; the type is always the last, optional argument.
@@ -126,13 +131,13 @@ trait HasTags
         return app(TagsManager::class)->for($this)->one($type);
     }
 
-    public function hasTag(Tag|int|string $tag, string|BackedEnum|null $type = null): bool
+    public function hasTag(Tag|TagKey|int|string $tag, string|BackedEnum|null $type = null): bool
     {
         return app(TagsManager::class)->for($this)->has($tag, $type);
     }
 
     /**
-     * @param  mixed  $tags  Tag|int|string|iterable<Tag|int|string>|null
+     * @param  mixed  $tags  Tag|TagKey|int|string|iterable<Tag|TagKey|int|string>|null
      */
     public function hasAnyTags(mixed $tags, string|BackedEnum|null $type = null): bool
     {
@@ -140,7 +145,7 @@ trait HasTags
     }
 
     /**
-     * @param  mixed  $tags  Tag|int|string|iterable<Tag|int|string>|null
+     * @param  mixed  $tags  Tag|TagKey|int|string|iterable<Tag|TagKey|int|string>|null
      */
     public function hasAllTags(mixed $tags, string|BackedEnum|null $type = null): bool
     {
@@ -148,7 +153,7 @@ trait HasTags
     }
 
     /**
-     * @param  mixed  $tags  Tag|int|string|iterable<Tag|int|string>|null
+     * @param  mixed  $tags  Tag|TagKey|int|string|iterable<Tag|TagKey|int|string>|null
      */
     public function attachTags(mixed $tags, string|BackedEnum|null $type = null): static
     {
@@ -158,7 +163,7 @@ trait HasTags
     }
 
     /**
-     * @param  mixed  $tags  Tag|int|string|iterable<Tag|int|string>|null
+     * @param  mixed  $tags  Tag|TagKey|int|string|iterable<Tag|TagKey|int|string>|null
      */
     public function detachTags(mixed $tags, string|BackedEnum|null $type = null): static
     {
@@ -171,7 +176,7 @@ trait HasTags
      * Make this model's tags of one type exactly these: `syncTags($jazz, 'genre')` sets a category,
      * `syncTags(null, 'genre')` clears it.
      *
-     * @param  mixed  $tags  Tag|int|string|iterable<Tag|int|string>|null
+     * @param  mixed  $tags  Tag|TagKey|int|string|iterable<Tag|TagKey|int|string>|null
      */
     public function syncTags(mixed $tags, string|BackedEnum|null $type = null): static
     {
@@ -191,7 +196,7 @@ trait HasTags
      * Models carrying at least one of the tags.
      *
      * @param  Builder<static>  $query
-     * @param  mixed  $tags  Tag|int|string|iterable<Tag|int|string>|null
+     * @param  mixed  $tags  Tag|TagKey|int|string|iterable<Tag|TagKey|int|string>|null
      */
     public function scopeWithAnyTags(Builder $query, mixed $tags, string|BackedEnum|null $type = null, bool $descendants = false, ?Model $within = null): void
     {
@@ -202,7 +207,7 @@ trait HasTags
      * Models carrying every one of the tags.
      *
      * @param  Builder<static>  $query
-     * @param  mixed  $tags  Tag|int|string|iterable<Tag|int|string>|null
+     * @param  mixed  $tags  Tag|TagKey|int|string|iterable<Tag|TagKey|int|string>|null
      */
     public function scopeWithAllTags(Builder $query, mixed $tags, string|BackedEnum|null $type = null, bool $descendants = false, ?Model $within = null): void
     {
@@ -213,7 +218,7 @@ trait HasTags
      * Models carrying none of the tags; with none given, no tag of the type (or no tag at all).
      *
      * @param  Builder<static>  $query
-     * @param  mixed  $tags  Tag|int|string|iterable<Tag|int|string>|null
+     * @param  mixed  $tags  Tag|TagKey|int|string|iterable<Tag|TagKey|int|string>|null
      */
     public function scopeWithoutTags(Builder $query, mixed $tags = [], string|BackedEnum|null $type = null, bool $descendants = false, ?Model $within = null): void
     {

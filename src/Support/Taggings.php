@@ -7,6 +7,7 @@ namespace RoundlyConsulting\Tags\Support;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use RoundlyConsulting\Tags\Contracts\Taggable;
+use RoundlyConsulting\Tags\DataTransferObjects\TagKey;
 use RoundlyConsulting\Tags\DataTransferObjects\TagSelection;
 use RoundlyConsulting\Tags\Exceptions\UnsavedTaggableException;
 use RoundlyConsulting\Tags\Models\Tag;
@@ -62,7 +63,7 @@ final class Taggings
     public static function typeOfNames(TagSelection $selection, TagTypeRegistry $registry): ?TagType
     {
         foreach ($selection->tags as $tag) {
-            if (is_string($tag)) {
+            if (is_string($tag) && ! TagInputs::normalize($tag) instanceof TagKey) {
                 return $selection->type === null ? $registry->defaultType() : $registry->resolve($selection->type);
             }
         }

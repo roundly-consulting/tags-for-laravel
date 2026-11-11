@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Model;
 use PHPUnit\Framework\Assert as PHPUnit;
 use RoundlyConsulting\Tags\Contracts\Taggable;
 use RoundlyConsulting\Tags\DataTransferObjects\RepairReport;
+use RoundlyConsulting\Tags\DataTransferObjects\TagKey;
 use RoundlyConsulting\Tags\Enums\TagOperation;
 use RoundlyConsulting\Tags\Models\Tag;
 use RoundlyConsulting\Tags\Support\KeyShape;
@@ -97,10 +98,10 @@ final class TagsFake extends TagsManager
     // Tagging --------------------------------------------------------------------------
 
     /**
-     * Tags were attached to `$model` (by an attach or a sync), optionally these tags (models, or
-     * slugs in the current locale) of this type.
+     * Tags were attached to `$model` (by an attach or a sync), optionally these tags (models,
+     * keys, or slugs in the current locale) of this type.
      *
-     * @param  list<Tag|string>|null  $tags
+     * @param  list<Tag|TagKey|string>|null  $tags
      */
     public function assertTagged(Model $model, ?array $tags = null, string|BackedEnum|null $type = null): void
     {
@@ -128,7 +129,7 @@ final class TagsFake extends TagsManager
     /**
      * Tags were detached from `$model` (by a detach, a sync or a clear).
      *
-     * @param  list<Tag|string>|null  $tags
+     * @param  list<Tag|TagKey|string>|null  $tags
      */
     public function assertUntagged(Model $model, ?array $tags = null, string|BackedEnum|null $type = null): void
     {
@@ -156,7 +157,7 @@ final class TagsFake extends TagsManager
     /**
      * `$model`'s tags of `$type` were synced, optionally to exactly these tags.
      *
-     * @param  list<Tag|string>|null  $tags
+     * @param  list<Tag|TagKey|string>|null  $tags
      */
     public function assertSynced(Model $model, string|BackedEnum $type, ?array $tags = null): void
     {
@@ -245,10 +246,16 @@ final class TagsFake extends TagsManager
     /**
      * @param  list<Tag>  $tags
      */
-    private static function contains(array $tags, Tag|string $expected): bool
+    private static function contains(array $tags, Tag|TagKey|string $expected): bool
     {
         foreach ($tags as $tag) {
-            if ($expected instanceof Tag ? $tag->is($expected) : $tag->slug === TagSlugs::slugify($expected, Translatable::currentLocale())) {
+            $matches = match (true) {
+                $expected instanceof Tag => $tag->is($expected),
+                $expected instanceof TagKey => KeyShape::canonical($tag->getKey()) === $expected->canonical(),
+                default => $tag->slug === TagSlugs::slugify($expected, Translatable::currentLocale()),
+            };
+
+            if ($matches) {
                 return true;
             }
         }
@@ -256,9 +263,9 @@ final class TagsFake extends TagsManager
         return false;
     }
 
-    private static function describe(Tag|string $tag): string
+    private static function describe(Tag|TagKey|string $tag): string
     {
-        return $tag instanceof Tag ? (string) $tag->slug : $tag;
+        return $tag instanceof Tag ? (string) $tag->slug : (string) $tag;
     }
 
     // Catalog --------------------------------------------------------------------------

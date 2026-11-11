@@ -12,13 +12,14 @@ use RoundlyConsulting\Tags\Types\TagTypeRegistry;
 
 /**
  * The tags a tagging call names, and the type it names them in (null: models and keys carry
- * their own type, strings use the default type). Each entry is a tag model, a primary key (int)
- * or a name or slug (string); strings never parse as keys.
+ * their own type, strings use the default type). Each entry is a tag model, a primary key (an int
+ * or a {@see TagKey}) or a name or slug (string). A string is never a key, unless
+ * `tags.string_keys` is on and it fits the key type: resolution then reads it as one.
  */
 final readonly class TagSelection
 {
     /**
-     * @param  list<Tag|int|string>  $tags
+     * @param  list<Tag|TagKey|int|string>  $tags
      */
     public function __construct(
         public array $tags,
@@ -26,7 +27,7 @@ final readonly class TagSelection
     ) {}
 
     /**
-     * @param  mixed  $tags  Tag|int|string|iterable<Tag|int|string>|null
+     * @param  mixed  $tags  Tag|TagKey|int|string|iterable<Tag|TagKey|int|string>|null
      */
     public static function of(mixed $tags, string|BackedEnum|TagType|null $type = null): self
     {
@@ -36,7 +37,7 @@ final readonly class TagSelection
             return new self([], $type);
         }
 
-        if ($tags instanceof Tag || is_int($tags) || is_string($tags)) {
+        if ($tags instanceof Tag || $tags instanceof TagKey || is_int($tags) || is_string($tags)) {
             return new self([$tags], $type);
         }
 
@@ -47,7 +48,7 @@ final readonly class TagSelection
         $list = [];
 
         foreach ($tags as $tag) {
-            if (! $tag instanceof Tag && ! is_int($tag) && ! is_string($tag)) {
+            if (! $tag instanceof Tag && ! $tag instanceof TagKey && ! is_int($tag) && ! is_string($tag)) {
                 throw new InvalidArgumentException('Tags are a tag model, a key, a name, or a list of them.');
             }
 

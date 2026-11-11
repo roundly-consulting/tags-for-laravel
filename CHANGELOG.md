@@ -6,6 +6,31 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 
 ## Unreleased
 
+### Added
+
+- Name tags by primary key with `TagKey::of($id)` or `Tags::keys($ids)`, on any key type (int,
+  numeric string, uuid, ulid). Keys work everywhere a tag list does: `attachTags`, `detachTags`,
+  `syncTags`, `hasTag` / `hasAnyTags` / `hasAllTags`, the `withAnyTags` / `withAllTags` /
+  `withoutTags` scopes, `Tags::for()`, and the catalog's `find`, `findOrFail`, `findTrashed`,
+  `findMany` and `reorder`. A key only resolves an existing tag: it is never read as a name, so it
+  never creates a tag named after the key.
+- `UnknownTagKeyException`: an attach or sync given a key that names no usable tag throws it and
+  writes nothing. It extends `TagNotFoundException`, with the same `tag_not_found` code and
+  generic client message; `$exception->key` holds the key for logs.
+- `tags.string_keys` (default off): on a uuid or ulid install, a plain string that fits the key
+  type is read as a key first, in the tagging verbs, the reads, the query scopes, `TagsFilter` and
+  `TagsRule`. No effect on a bigint install.
+- `Tags::fake()` assertions (`assertTagged`, `assertUntagged`, `assertSynced`) accept a `TagKey`.
+
+### Changed
+
+- An attach or sync given an unknown int key now throws `UnknownTagKeyException` (a
+  `TagNotFoundException`, same message and code). `TagNotFoundException` is no longer `final`.
+
+### Planned for the next major
+
+- `tags.string_keys` on by default for uuid and ulid installs, so a key string names its tag.
+
 ## 2.0.0 - 2026-11-07
 
 ### Changed

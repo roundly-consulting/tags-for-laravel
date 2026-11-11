@@ -20,9 +20,11 @@ use RoundlyConsulting\Tags\Contracts\Taggable;
 use RoundlyConsulting\Tags\DataTransferObjects\RepairOptions;
 use RoundlyConsulting\Tags\DataTransferObjects\RepairReport;
 use RoundlyConsulting\Tags\DataTransferObjects\TagChanges;
+use RoundlyConsulting\Tags\DataTransferObjects\TagKey;
 use RoundlyConsulting\Tags\DataTransferObjects\TagSelection;
 use RoundlyConsulting\Tags\Enums\TagOperation;
 use RoundlyConsulting\Tags\Exceptions\TagNotFoundException;
+use RoundlyConsulting\Tags\Exceptions\UnknownTagKeyException;
 use RoundlyConsulting\Tags\Handles\TaggableTags;
 use RoundlyConsulting\Tags\Handles\TypeTags;
 use RoundlyConsulting\Tags\Models\Tag;
@@ -106,6 +108,20 @@ class TagsManager
     }
 
     /**
+     * Tags named by primary key, for any verb, scope or read that takes tags:
+     * `$event->syncTags(Tags::keys($validated['labels']), 'label')`. A key only ever resolves an
+     * existing tag — a write given an unknown one throws {@see UnknownTagKeyException} and creates
+     * nothing — where a plain string would be a name.
+     *
+     * @param  int|string|TagKey|iterable<mixed>  $keys  ints, strings or keys
+     * @return list<TagKey>
+     */
+    public function keys(int|string|TagKey|iterable $keys): array
+    {
+        return TagKey::many($keys);
+    }
+
+    /**
      * One model's tags: `Tags::for($event)->attach(['live'], 'label')`.
      */
     public function for(Model&Taggable $taggable): TaggableTags
@@ -126,10 +142,11 @@ class TagsManager
     }
 
     /**
-     * Add tags to a model. Unknown names of a free-form type are created in the model's scope;
-     * going over a type's max throws and writes nothing.
+     * Add tags to a model. Unknown names of a free-form type are created in the model's scope; an
+     * unknown key throws {@see UnknownTagKeyException}; going over a type's max throws and writes
+     * nothing.
      *
-     * @param  mixed  $tags  Tag|int|string|iterable<Tag|int|string>|null
+     * @param  mixed  $tags  Tag|TagKey|int|string|iterable<Tag|TagKey|int|string>|null
      */
     public function attach(Model&Taggable $taggable, mixed $tags, string|BackedEnum|null $type = null): TagChanges
     {
@@ -146,7 +163,7 @@ class TagsManager
     /**
      * Remove tags from a model; names that name no tag are ignored.
      *
-     * @param  mixed  $tags  Tag|int|string|iterable<Tag|int|string>|null
+     * @param  mixed  $tags  Tag|TagKey|int|string|iterable<Tag|TagKey|int|string>|null
      */
     public function detach(Model&Taggable $taggable, mixed $tags, string|BackedEnum|null $type = null): TagChanges
     {
@@ -163,7 +180,7 @@ class TagsManager
     /**
      * Make a model's tags of one type (the default type when none is given) exactly these.
      *
-     * @param  mixed  $tags  Tag|int|string|iterable<Tag|int|string>|null
+     * @param  mixed  $tags  Tag|TagKey|int|string|iterable<Tag|TagKey|int|string>|null
      */
     public function sync(Model&Taggable $taggable, mixed $tags, string|BackedEnum|null $type = null): TagChanges
     {

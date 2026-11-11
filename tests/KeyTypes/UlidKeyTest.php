@@ -12,3 +12,7 @@ test('ulid_installation_works', function (): void {
 it('serves the API on ulid keys', function (): void {
     KeyTypeScenarios::api($this);
 });
+
+test('ulid_keys_resolve_through_the_key_path_only', function (): void {
+    KeyTypeScenarios::tagKeys(static fn (): string => (string) Str::ulid());
+});

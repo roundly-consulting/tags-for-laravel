@@ -8,6 +8,7 @@ use BackedEnum;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Query\Builder as QueryBuilder;
+use RoundlyConsulting\Tags\DataTransferObjects\TagKey;
 use RoundlyConsulting\Tags\DataTransferObjects\TagSelection;
 use RoundlyConsulting\Tags\Exceptions\TagTypeMismatchException;
 use RoundlyConsulting\Tags\Exceptions\UnknownTagTypeException;
@@ -22,7 +23,7 @@ use RoundlyConsulting\Tags\Types\TagTypeRegistry;
  *
  * Strings resolve without creating, in every scope of the type unless `$within` narrows them to
  * that scope plus the global tags (the host's own query already narrows the models). An unknown
- * string matches nothing. With `$descendants`, a tag of a hierarchical type also matches every
+ * string, or a {@see TagKey} that names no tag, matches nothing. With `$descendants`, a tag of a hierarchical type also matches every
  * tag below it; on a flat type that is a no-op.
  *
  * @internal
@@ -120,8 +121,9 @@ final class TagScopes
 
     /**
      * The tag keys each input names (several when a name names tags in several scopes, plus
-     * descendants), in input order. With `$byId`, strings are primary keys (a uuid, or a number
-     * from a query string), never names.
+     * descendants), in input order. A {@see TagKey} is a primary key; with `$byId`, so is every
+     * string (a uuid, or a number from a query string), never a name. A key that names no tag
+     * matches nothing.
      *
      * @return list<list<string>>
      */
@@ -136,12 +138,16 @@ final class TagScopes
         $keys = [];
 
         foreach ($selection->tags as $index => $input) {
+            $input = TagInputs::normalize($input);
+
             if ($input instanceof Tag) {
                 if ($explicit !== null && $input->type !== $explicit->name) {
                     throw TagTypeMismatchException::expected($explicit->name, $input->type);
                 }
 
                 $byInput[$index] = [$input];
+            } elseif ($input instanceof TagKey) {
+                $keys[$index] = $input->key;
             } elseif (is_int($input) || $byId) {
                 $keys[$index] = $input;
             } else {

@@ -14,8 +14,11 @@ use RoundlyConsulting\Tags\Support\Messages;
  * never tells "no such key" from "someone else's key". {@see self::getMessage()} keeps the key for
  * logs. A name only ever resolves in the caller's own scopes, and a deleted tag reaches this
  * point only when it is the caller's own, so those two stay precise.
+ *
+ * Not final: {@see UnknownTagKeyException} (a tagging call's key that names no usable tag)
+ * extends it, so a `catch (TagNotFoundException)` keeps catching every not-found.
  */
-final class TagNotFoundException extends TagsException
+class TagNotFoundException extends TagsException
 {
     private bool $generic = false;
 

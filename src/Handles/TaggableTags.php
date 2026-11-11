@@ -8,9 +8,12 @@ use BackedEnum;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Tags\Contracts\Taggable;
+use RoundlyConsulting\Tags\DataTransferObjects\TagKey;
 use RoundlyConsulting\Tags\DataTransferObjects\TagSelection;
 use RoundlyConsulting\Tags\Models\Tag;
+use RoundlyConsulting\Tags\Support\KeyShape;
 use RoundlyConsulting\Tags\Support\Taggings;
+use RoundlyConsulting\Tags\Support\TagInputs;
 use RoundlyConsulting\Tags\Support\TagModel;
 use RoundlyConsulting\Tags\Support\TagName;
 use RoundlyConsulting\Tags\Support\TagSlugs;
@@ -30,7 +33,7 @@ final readonly class TaggableTags
     ) {}
 
     /**
-     * @param  mixed  $tags  Tag|int|string|iterable<Tag|int|string>|null
+     * @param  mixed  $tags  Tag|TagKey|int|string|iterable<Tag|TagKey|int|string>|null
      */
     public function attach(mixed $tags, string|BackedEnum|null $type = null): self
     {
@@ -40,7 +43,7 @@ final readonly class TaggableTags
     }
 
     /**
-     * @param  mixed  $tags  Tag|int|string|iterable<Tag|int|string>|null
+     * @param  mixed  $tags  Tag|TagKey|int|string|iterable<Tag|TagKey|int|string>|null
      */
     public function detach(mixed $tags, string|BackedEnum|null $type = null): self
     {
@@ -50,7 +53,7 @@ final readonly class TaggableTags
     }
 
     /**
-     * @param  mixed  $tags  Tag|int|string|iterable<Tag|int|string>|null
+     * @param  mixed  $tags  Tag|TagKey|int|string|iterable<Tag|TagKey|int|string>|null
      */
     public function sync(mixed $tags, string|BackedEnum|null $type = null): self
     {
@@ -113,16 +116,22 @@ final readonly class TaggableTags
     }
 
     /**
-     * Whether the model carries the tag: a model or a key, or a name or slug (along the chain).
+     * Whether the model carries the tag: a model or a key (an int or a {@see TagKey}), or a name or
+     * slug (along the chain).
      */
-    public function has(Tag|int|string $tag, string|BackedEnum|null $type = null): bool
+    public function has(Tag|TagKey|int|string $tag, string|BackedEnum|null $type = null): bool
     {
         $tags = $type === null ? $this->all() : $this->of($type);
+        $tag = TagInputs::normalize($tag);
 
-        if ($tag instanceof Tag || is_int($tag)) {
-            $key = (string) ($tag instanceof Tag ? $tag->getKey() : $tag);
+        if ($tag instanceof Tag || $tag instanceof TagKey || is_int($tag)) {
+            $key = KeyShape::canonical(match (true) {
+                $tag instanceof Tag => $tag->getKey(),
+                $tag instanceof TagKey => $tag->key,
+                default => $tag,
+            });
 
-            return $tags->contains(static fn (Tag $carried): bool => (string) $carried->getKey() === $key);
+            return $tags->contains(static fn (Tag $carried): bool => KeyShape::canonical($carried->getKey()) === $key);
         }
 
         $name = TagName::normalizeOrNull($tag);
@@ -148,7 +157,7 @@ final readonly class TaggableTags
     }
 
     /**
-     * @param  mixed  $tags  Tag|int|string|iterable<Tag|int|string>|null
+     * @param  mixed  $tags  Tag|TagKey|int|string|iterable<Tag|TagKey|int|string>|null
      */
     public function hasAny(mixed $tags, string|BackedEnum|null $type = null): bool
     {
@@ -162,7 +171,7 @@ final readonly class TaggableTags
     }
 
     /**
-     * @param  mixed  $tags  Tag|int|string|iterable<Tag|int|string>|null
+     * @param  mixed  $tags  Tag|TagKey|int|string|iterable<Tag|TagKey|int|string>|null
      */
     public function hasAll(mixed $tags, string|BackedEnum|null $type = null): bool
     {
@@ -176,7 +185,7 @@ final readonly class TaggableTags
     }
 
     /**
-     * Live tags of a type by primary key, in the scopes this model reads — its `tagScope()` and the
+     * Live tags of a type by primary key (an int, a string or a {@see TagKey}), in the scopes this model reads — its `tagScope()` and the
      * global tags (global only for a global-only type) — in the order given. Keys that are
      * malformed, missing or of another type or scope are skipped: the recipe for ids a form
      * validated with `TagsRule::for($type)->byId()->taggable($model)`.

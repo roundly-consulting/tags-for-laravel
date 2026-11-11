@@ -26,6 +26,21 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | String keys
+    |--------------------------------------------------------------------------
+    |
+    | A string given as a tag is a name or a slug. Name a tag by key with
+    | TagKey::of($id) or Tags::keys($ids): an unknown key throws and creates
+    | nothing. On a uuid or ulid install, `string_keys` reads a string that
+    | fits the key type as a key first, everywhere a tag is given; a name that
+    | looks like a key is then reachable only as a model. No effect on bigint.
+    |
+    */
+
+    'string_keys' => env('TAGS_STRING_KEYS', false),
+
+    /*
+    |--------------------------------------------------------------------------
     | Tables and the tag model
     |--------------------------------------------------------------------------
     |

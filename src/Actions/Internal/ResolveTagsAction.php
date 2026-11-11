@@ -4,19 +4,23 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Tags\Actions\Internal;
 
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Tags\Contracts\Taggable;
 use RoundlyConsulting\Tags\DataTransferObjects\ResolvedSelection;
+use RoundlyConsulting\Tags\DataTransferObjects\TagKey;
 use RoundlyConsulting\Tags\DataTransferObjects\TagSelection;
 use RoundlyConsulting\Tags\Exceptions\TagNotFoundException;
 use RoundlyConsulting\Tags\Exceptions\TagScopeMismatchException;
 use RoundlyConsulting\Tags\Exceptions\TagTypeMismatchException;
 use RoundlyConsulting\Tags\Exceptions\TagTypeNotAllowedException;
+use RoundlyConsulting\Tags\Exceptions\UnknownTagKeyException;
 use RoundlyConsulting\Tags\Exceptions\UnknownTagTypeException;
 use RoundlyConsulting\Tags\Models\Tag;
 use RoundlyConsulting\Tags\Support\KeyShape;
 use RoundlyConsulting\Tags\Support\ScopeKey;
 use RoundlyConsulting\Tags\Support\Taggings;
+use RoundlyConsulting\Tags\Support\TagInputs;
 use RoundlyConsulting\Tags\Support\TagLookup;
 use RoundlyConsulting\Tags\Support\TagModel;
 use RoundlyConsulting\Tags\Support\TagName;
@@ -57,8 +61,12 @@ final readonly class ResolveTagsAction
         $keys = [];
 
         foreach ($selection->tags as $input) {
+            $input = TagInputs::normalize($input);
+
             if ($input instanceof Tag) {
                 $models[] = $input;
+            } elseif ($input instanceof TagKey) {
+                $keys[] = $input->key;
             } elseif (is_int($input)) {
                 $keys[] = $input;
             } else {
@@ -149,7 +157,10 @@ final readonly class ResolveTagsAction
     }
 
     /**
-     * @param  list<int>  $keys
+     * Keys (ints, or a {@see TagKey}'s int or string) only ever name existing tags: strict, one
+     * that names none throws; lenient skips it.
+     *
+     * @param  list<int|string>  $keys
      * @return list<Tag>
      */
     private function loadKeys(array $keys, bool $strict): array
@@ -159,17 +170,17 @@ final readonly class ResolveTagsAction
         }
 
         $valid = array_values(array_filter($keys, KeyShape::isTagKey(...)));
-        $found = TagModel::query()->withTrashed()->whereKey($valid)->get()
-            ->keyBy(static fn (Tag $tag): string => (string) $tag->getKey());
+        $found = $valid === [] ? new Collection : TagModel::query()->withTrashed()->whereKey($valid)->get()
+            ->keyBy(static fn (Tag $tag): string => KeyShape::canonical($tag->getKey()));
 
         $loaded = [];
 
         foreach ($keys as $key) {
-            $tag = $found->get((string) $key);
+            $tag = KeyShape::isTagKey($key) ? $found->get(KeyShape::canonical($key)) : null;
 
             if ($tag === null) {
                 if ($strict) {
-                    throw TagNotFoundException::forKey($key);
+                    throw UnknownTagKeyException::make($key);
                 }
 
                 continue;
