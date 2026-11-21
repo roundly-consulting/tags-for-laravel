@@ -6,6 +6,23 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 
 ## Unreleased
 
+## 2.2.0 - 2026-11-21
+
+### Added
+
+- Merge one tag into another: `Tags::type($type)->within($scope)->merge($from, $into, $children)`
+  returns a `TagMerge` (`into`, `moved`, `deduplicated`, `from`). Every tagging of `$from` moves to
+  `$into`, whatever the model and scope, keeping the pivot row's own columns; a record that carried
+  both keeps one. `$into`'s usage count is recounted from the pivot, then `$from` is soft-deleted
+  (a restore brings back the tag, never its taggings). Children of `$from`: `TagChildren::Refuse`
+  (default), `Reparent` (under `$into`) or `Delete`. One transaction; an attach of `$from` racing
+  the merge is moved or refused, never orphaned.
+- `TagMerged` event (after commit): `from`, `into`, `moved`, `deduplicated`, `reparented`,
+  `deleted`. A merge fires no `TagDeleted`.
+- `InvalidTagMergeException` (`invalid_merge`), `TagHasChildrenException::forMerge()` and
+  `TagScopeMismatchException::forRead()`, in English and Slovak.
+- `Tags::fake()`: `assertTagMerged()` / `assertNoTagMerged()`; `TagOperation::MergeTag`.
+
 ## 2.1.0 - 2026-11-11
 
 ### Added
