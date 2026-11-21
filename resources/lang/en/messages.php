@@ -14,6 +14,7 @@ return [
 
     'scope_mismatch' => 'The tag [:tag] belongs to another scope than this model.',
     'scope_mismatch_write' => 'The tag [:tag] belongs to another scope than this handle writes to.',
+    'scope_mismatch_read' => 'The tag [:tag] belongs to a scope this handle does not read.',
 
     'duplicate' => 'A tag with the slug [:slug] already exists.',
     'duplicate_locale' => 'A tag with the slug [:slug] in [:locale] already exists.',
@@ -49,6 +50,13 @@ return [
     ],
 
     'has_children' => 'The tag [:tag] has children: delete it with its children or move them to its parent.',
+    'has_children_merge' => 'The tag [:tag] has children: move them to the tag it merges into, or delete them with it.',
+
+    'merge' => [
+        'same_tag' => 'A tag cannot be merged into itself.',
+        'into_descendant' => 'A tag cannot be merged into one of its own descendants.',
+        'children_across_scopes' => 'The children of a tag cannot move to a tag of another scope: merge it with its children deleted, or move them first.',
+    ],
     'unknown_alias' => 'Unknown :kind alias.',
     'unknown_alias_missing' => 'The :kind reference names no record.',
     'unsaved_taggable' => 'Save the :model before tagging it.',

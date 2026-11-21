@@ -14,6 +14,7 @@ return [
 
     'scope_mismatch' => 'Štítok [:tag] patrí do iného rozsahu ako tento záznam.',
     'scope_mismatch_write' => 'Štítok [:tag] patrí do iného rozsahu, než do ktorého zapisuje tento prístup.',
+    'scope_mismatch_read' => 'Štítok [:tag] patrí do rozsahu, ktorý tento prístup nečíta.',
 
     'duplicate' => 'Štítok so slugom [:slug] už existuje.',
     'duplicate_locale' => 'Štítok so slugom [:slug] v jazyku [:locale] už existuje.',
@@ -49,6 +50,13 @@ return [
     ],
 
     'has_children' => 'Štítok [:tag] má potomkov: vymažte ho aj s potomkami alebo ich presuňte k jeho rodičovi.',
+    'has_children_merge' => 'Štítok [:tag] má potomkov: presuňte ich pod štítok, do ktorého sa zlučuje, alebo ich vymažte spolu s ním.',
+
+    'merge' => [
+        'same_tag' => 'Štítok nemožno zlúčiť so sebou samým.',
+        'into_descendant' => 'Štítok nemožno zlúčiť do vlastného potomka.',
+        'children_across_scopes' => 'Potomkovia štítka sa nemôžu presunúť pod štítok z iného rozsahu: zlúčte ho a potomkov vymažte, alebo ich najprv presuňte.',
+    ],
     'unknown_alias' => 'Neznámy alias pre :kind.',
     'unknown_alias_missing' => 'Odkaz na :kind nezodpovedá žiadnemu záznamu.',
     'unsaved_taggable' => 'Pred pridaním štítkov uložte :model.',

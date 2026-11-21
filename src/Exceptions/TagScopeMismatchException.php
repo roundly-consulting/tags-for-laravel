@@ -24,6 +24,14 @@ final class TagScopeMismatchException extends TagsException
         return new self(Messages::get('messages.scope_mismatch_write', ['tag' => $slug]));
     }
 
+    /**
+     * A tag the handle does not read: a merge target outside its scopes.
+     */
+    public static function forRead(string $slug): self
+    {
+        return new self(Messages::get('messages.scope_mismatch_read', ['tag' => $slug]));
+    }
+
     public function errorCode(): string
     {
         return 'tag_not_found';

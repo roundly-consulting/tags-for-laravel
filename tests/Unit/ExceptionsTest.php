@@ -5,6 +5,7 @@ declare(strict_types=1);
 use RoundlyConsulting\Tags\Exceptions\DuplicateTagException;
 use RoundlyConsulting\Tags\Exceptions\InvalidTagException;
 use RoundlyConsulting\Tags\Exceptions\InvalidTagHierarchyException;
+use RoundlyConsulting\Tags\Exceptions\InvalidTagMergeException;
 use RoundlyConsulting\Tags\Exceptions\InvalidTagsConfigurationException;
 use RoundlyConsulting\Tags\Exceptions\InvalidTagTypeException;
 use RoundlyConsulting\Tags\Exceptions\ReadOnlyTagsRelationException;
@@ -38,6 +39,7 @@ function everyTagException(): array
         'not found' => [fn () => TagNotFoundException::generic()],
         'scope mismatch' => [fn () => TagScopeMismatchException::forTag('fax')],
         'scope mismatch write' => [fn () => TagScopeMismatchException::forWrite('fax')],
+        'scope mismatch read' => [fn () => TagScopeMismatchException::forRead('fax')],
         'duplicate' => [fn () => DuplicateTagException::forSlug('rock')],
         'duplicate locale' => [fn () => DuplicateTagException::forSlug('rock', 'en')],
         'duplicate trashed' => [fn () => DuplicateTagException::heldByTrashed('rock', 'en')],
@@ -65,6 +67,10 @@ function everyTagException(): array
         'flat type' => [fn () => InvalidTagHierarchyException::flatType('label')],
         'parent trashed' => [fn () => InvalidTagHierarchyException::parentTrashed()],
         'has children' => [fn () => TagHasChildrenException::forTag('jazz')],
+        'has children merge' => [fn () => TagHasChildrenException::forMerge('jazz')],
+        'merge same tag' => [fn () => InvalidTagMergeException::sameTag()],
+        'merge into descendant' => [fn () => InvalidTagMergeException::intoDescendant()],
+        'merge children across scopes' => [fn () => InvalidTagMergeException::childrenAcrossScopes()],
         'unknown alias' => [fn () => UnknownMorphAliasException::alias('scope')],
         'alias missing' => [fn () => UnknownMorphAliasException::missing('scope')],
         'unsaved' => [fn () => UnsavedTaggableException::make('Article')],
@@ -108,6 +114,9 @@ test('every_exception_exposes_its_code_status_and_family', function (Closure $ma
     [fn () => TagTypeMismatchException::expected('x', 'y'), 'tag_type_mismatch', 422, false],
     [fn () => InvalidTagHierarchyException::cycle(), 'invalid_hierarchy', 422, false],
     [fn () => TagHasChildrenException::forTag('x'), 'tag_has_children', 409, false],
+    [fn () => TagHasChildrenException::forMerge('x'), 'tag_has_children', 409, false],
+    [fn () => TagScopeMismatchException::forRead('x'), 'tag_not_found', 422, true],
+    [fn () => InvalidTagMergeException::sameTag(), 'invalid_merge', 422, false],
     [fn () => UnknownMorphAliasException::alias('scope'), 'unknown_alias', 422, false],
     [fn () => UnsavedTaggableException::make('X'), 'unsaved_taggable', 500, false],
     [fn () => TagTypeAlreadyDefinedException::twice('x', 'a', 'b'), 'type_already_defined', 500, false],

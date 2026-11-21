@@ -134,7 +134,7 @@ test('fake_naming_rule_is_pinned', function (): void {
         }
     }
 
-    expect($pairs)->toBe(11);
+    expect($pairs)->toBe(12);
 });
 
 test('assert_tags_reordered_accepts_an_enum', function (): void {
@@ -171,6 +171,7 @@ test('fake_covers_every_operation', function (): void {
         'reorder_tags' => [fn () => $genres()->reorder(null, [$genres()->findOrFail('jazz')]), fn (TagsFake $fake) => $fake->assertTagsReordered('genre')],
         'delete_tag' => [fn () => $genres()->delete($genres()->findOrFail('rock')), fn (TagsFake $fake) => $fake->assertTagDeleted()],
         'restore_tag' => [fn () => $genres()->restore($genres()->findTrashed('rock') ?? throw new RuntimeException('rock is not deleted')), fn (TagsFake $fake) => $fake->assertTagRestored()],
+        'merge_tag' => [fn () => $genres()->merge($genres()->findOrCreate('Bebop'), $genres()->findOrFail('jazz')), fn (TagsFake $fake) => $fake->assertTagMerged()],
         'repair' => [fn () => Tags::repair(), fn (TagsFake $fake) => $fake->assertRepaired()],
     ];
 

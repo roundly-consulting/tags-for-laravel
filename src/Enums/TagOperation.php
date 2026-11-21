@@ -26,5 +26,6 @@ enum TagOperation: string
     case ReorderTags = 'reorder_tags';
     case DeleteTag = 'delete_tag';
     case RestoreTag = 'restore_tag';
+    case MergeTag = 'merge_tag';
     case Repair = 'repair';
 }

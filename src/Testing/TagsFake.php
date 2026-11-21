@@ -12,6 +12,7 @@ use PHPUnit\Framework\Assert as PHPUnit;
 use RoundlyConsulting\Tags\Contracts\Taggable;
 use RoundlyConsulting\Tags\DataTransferObjects\RepairReport;
 use RoundlyConsulting\Tags\DataTransferObjects\TagKey;
+use RoundlyConsulting\Tags\DataTransferObjects\TagMerge;
 use RoundlyConsulting\Tags\Enums\TagOperation;
 use RoundlyConsulting\Tags\Models\Tag;
 use RoundlyConsulting\Tags\Support\KeyShape;
@@ -324,6 +325,45 @@ final class TagsFake extends TagsManager
     public function assertNoTagDeleted(): void
     {
         $this->assertNoCatalog($this->tagsOf(TagOperation::DeleteTag), 'deleted');
+    }
+
+    /**
+     * A tag was merged into another, optionally a merge the callback accepts:
+     * `fn (TagMerge $merge) => $merge->into->is($rock) && $merge->moved === 3`.
+     *
+     * @param  (Closure(TagMerge): bool)|null  $callback
+     */
+    public function assertTagMerged(?Closure $callback = null): void
+    {
+        $merges = $this->merges();
+        $matching = array_filter($merges, static fn (TagMerge $merge): bool => $callback === null || $callback($merge));
+
+        PHPUnit::assertNotEmpty($matching, $callback === null
+            ? 'Expected a tag to be merged, but none was.'
+            : 'Expected a tag to be merged, but none matched the callback.');
+    }
+
+    public function assertNoTagMerged(): void
+    {
+        $merges = $this->merges();
+
+        PHPUnit::assertEmpty($merges, sprintf('Expected no tag to be merged, but %d were.', count($merges)));
+    }
+
+    /**
+     * @return list<TagMerge>
+     */
+    private function merges(): array
+    {
+        $merges = [];
+
+        foreach ($this->recorded(TagOperation::MergeTag) as $recorded) {
+            if ($recorded->result instanceof TagMerge) {
+                $merges[] = $recorded->result;
+            }
+        }
+
+        return $merges;
     }
 
     /**

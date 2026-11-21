@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Tags\Support;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use RoundlyConsulting\Tags\Contracts\Taggable;
 use RoundlyConsulting\Tags\DataTransferObjects\TagKey;
@@ -172,6 +173,44 @@ final class Taggings
         self::lockTags(array_values(array_diff(array_map(strval(...), array_keys($current)), $locked)));
 
         return $current;
+    }
+
+    /**
+     * Lock the rows of many records — the taggables a catalog write moves taggings on — one model
+     * class at a time, each in one ascending sweep of its keys, as a tagging write locks its one
+     * record before any tag row. A type that resolves to no model class is skipped: no write can
+     * tag a record of it.
+     *
+     * @param  array<string, array{0: string, 1: int|string}>  $records  `type|key` => [morph type, key]
+     * @return array<string, array{0: string, 1: int|string}> the records given
+     */
+    public static function lockTaggables(array $records): array
+    {
+        $byType = [];
+
+        foreach ($records as [$morph, $key]) {
+            $byType[$morph][(string) $key] = $key;
+        }
+
+        ksort($byType);
+
+        foreach ($byType as $morph => $keys) {
+            $class = Relation::getMorphedModel($morph) ?? $morph;
+
+            if (! class_exists($class) || ! is_subclass_of($class, Model::class)) {
+                continue;
+            }
+
+            $model = new $class;
+            $sorted = array_values($keys);
+            sort($sorted);
+
+            foreach (array_chunk($sorted, 1000) as $chunk) {
+                $model->newQueryWithoutScopes()->whereKey($chunk)->orderBy($model->getKeyName())->lockForUpdate()->get([$model->getKeyName()]);
+            }
+        }
+
+        return $records;
     }
 
     /**

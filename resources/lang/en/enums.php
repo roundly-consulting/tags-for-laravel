@@ -20,6 +20,7 @@ return [
         'reorder_tags' => 'Reorder tags',
         'delete_tag' => 'Delete a tag',
         'restore_tag' => 'Restore a tag',
+        'merge_tag' => 'Merge a tag',
         'repair' => 'Repair tags',
     ],
     'type_source' => [

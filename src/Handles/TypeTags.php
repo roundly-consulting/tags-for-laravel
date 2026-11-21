@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Model;
 use RoundlyConsulting\Tags\Actions\Catalog\CreateTagAction;
 use RoundlyConsulting\Tags\Actions\Catalog\DeleteTagAction;
 use RoundlyConsulting\Tags\Actions\Catalog\FindOrCreateTagAction;
+use RoundlyConsulting\Tags\Actions\Catalog\MergeTagAction;
 use RoundlyConsulting\Tags\Actions\Catalog\MoveTagAction;
 use RoundlyConsulting\Tags\Actions\Catalog\ReorderTagsAction;
 use RoundlyConsulting\Tags\Actions\Catalog\RestoreTagAction;
@@ -19,6 +20,7 @@ use RoundlyConsulting\Tags\Builders\TagBuilder;
 use RoundlyConsulting\Tags\Builders\TagEditor;
 use RoundlyConsulting\Tags\DataTransferObjects\TagData;
 use RoundlyConsulting\Tags\DataTransferObjects\TagKey;
+use RoundlyConsulting\Tags\DataTransferObjects\TagMerge;
 use RoundlyConsulting\Tags\DataTransferObjects\TagNode;
 use RoundlyConsulting\Tags\DataTransferObjects\UpdateTagData;
 use RoundlyConsulting\Tags\Enums\TagChildren;
@@ -190,6 +192,32 @@ final readonly class TypeTags
             DeleteTagAction::class,
             static fn (DeleteTagAction $action): Tag => $action->execute($tag, $children),
             ['type' => $this->type->name, 'tag' => $tag, 'children' => $children],
+        );
+    }
+
+    /**
+     * Merge `$from` into `$into`: every tagging of `$from` moves to `$into` (a record carrying both
+     * keeps one), then `$from` is deleted. `$from` is in this handle's write scope; `$into` in a
+     * scope it reads — `within($team)` merges a team tag into a global one. Children of `$from`:
+     * refuse (default), reparent under `$into`, or delete.
+     */
+    public function merge(Tag $from, Tag $into, TagChildren $children = TagChildren::Refuse): TagMerge
+    {
+        $this->ensureWritable($from);
+
+        if ($into->type !== $this->type->name) {
+            throw TagTypeMismatchException::expected($this->type->name, $into->type);
+        }
+
+        if (! $this->isReadable($into)) {
+            throw TagScopeMismatchException::forRead((string) $into->slug);
+        }
+
+        return $this->manager->perform(
+            TagOperation::MergeTag,
+            MergeTagAction::class,
+            static fn (MergeTagAction $action): TagMerge => $action->execute($from, $into, $children),
+            ['type' => $this->type->name, 'from' => $from, 'into' => $into, 'children' => $children],
         );
     }
 

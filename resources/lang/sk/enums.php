@@ -20,6 +20,7 @@ return [
         'reorder_tags' => 'Zmena poradia štítkov',
         'delete_tag' => 'Vymazanie štítka',
         'restore_tag' => 'Obnovenie štítka',
+        'merge_tag' => 'Zlúčenie štítka',
         'repair' => 'Oprava štítkov',
     ],
     'type_source' => [

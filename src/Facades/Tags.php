@@ -40,6 +40,8 @@ use RoundlyConsulting\Tags\Testing\TagsFake;
  * @method static void assertNoTagMoved()
  * @method static void assertTagDeleted(\Closure|null $callback = null)
  * @method static void assertNoTagDeleted()
+ * @method static void assertTagMerged(\Closure|null $callback = null)
+ * @method static void assertNoTagMerged()
  * @method static void assertTagRestored(\Closure|null $callback = null)
  * @method static void assertNoTagRestored()
  * @method static void assertTagsReordered(\BackedEnum|string|null $type = null)
