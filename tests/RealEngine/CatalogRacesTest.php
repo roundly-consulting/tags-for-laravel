@@ -9,7 +9,7 @@ use RoundlyConsulting\Tags\Exceptions\DuplicateTagException;
 use RoundlyConsulting\Tags\Facades\Tags;
 use RoundlyConsulting\Tags\Models\Tag;
 use RoundlyConsulting\Tags\Tests\Fixtures\Models\Article;
-use RoundlyConsulting\Tags\Tests\Support\Racer;
+use RoundlyConsulting\Testing\Concurrency\Racer;
 
 /**
  * Two sessions at once on a real engine (pgsql, mysql). The parent holds its transaction open

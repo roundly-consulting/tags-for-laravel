@@ -12,7 +12,7 @@ use RoundlyConsulting\Tags\Facades\Tags;
 use RoundlyConsulting\Tags\Models\Tag;
 use RoundlyConsulting\Tags\Models\Tagging;
 use RoundlyConsulting\Tags\Tests\Fixtures\Models\Article;
-use RoundlyConsulting\Tags\Tests\Support\Racer;
+use RoundlyConsulting\Testing\Concurrency\Racer;
 
 beforeEach(function (): void {
     Tags::define('genre')->hierarchical()->single();

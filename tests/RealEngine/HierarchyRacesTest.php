@@ -11,7 +11,7 @@ use RoundlyConsulting\Tags\Exceptions\TagHasChildrenException;
 use RoundlyConsulting\Tags\Facades\Tags;
 use RoundlyConsulting\Tags\Models\Tag;
 use RoundlyConsulting\Tags\Tests\Fixtures\Models\Article;
-use RoundlyConsulting\Tags\Tests\Support\Racer;
+use RoundlyConsulting\Testing\Concurrency\Racer;
 
 test('concurrent_moves_cannot_form_a_cycle', function (): void {
     Tags::define('genre')->hierarchical();
